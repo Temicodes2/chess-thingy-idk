@@ -1,6 +1,7 @@
 {
   "type": "module",
   "scripts": {
+    "start": "node scripts/prepare-assets.mjs &&node server.js",
     "dev": "node scripts/prepare-assets.mjs && vite --host 127.0.0.1",
     "build": "node scripts/prepare-assets.mjs && vite build",
     "preview": "vite preview --host 127.0.0.1"
