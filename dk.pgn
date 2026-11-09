@@ -1,0 +1,19 @@
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.11.06"]
+[Round "?"]
+[White "posnak3"]
+[Black "dagoat-adrian"]
+[Result "1-0"]
+[WhiteElo "133"]
+[BlackElo "104"]
+[ECO "B02"]
+[Termination "posnak3 won by checkmate"]
+[TimeControl "900+10"]
+[EndTime "14:38:38 GMT+0000"]
+[Link "https://www.chess.com/analysis/collection/kl-g-cfgB42Nr/2gF4mfU6gn/games"]
+
+1. e4 d5 2. Nc3 Nf6 3. d4 Bg4 4. f3 Bh5 5. e5 Nfd7 6. g4 Bg6 7. Nge2 Nc6 8. Nf4
+Ncxe5 9. dxe5 Nc5 10. Be3 Qd7 11. Bxc5 O-O-O 12. Nfxd5 c6 13. e6 fxe6 14. Qd4
+cxd5 15. O-O-O b6 16. Bxb6 axb6 17. Qxb6 Re8 18. Ba6+ Qb7 19. Qxb7+ Kd8 20. Qc8#
+1-0
