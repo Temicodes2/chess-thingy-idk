@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Chess Studio
 
 Chess Studio is a local web app for browsing PGN games and reviewing positions
@@ -18,3 +19,6 @@ different engine executable.
 To use a different local address or port, run
 `python main.py --host 127.0.0.1 --port 8000`. Add `--no-browser` to start the
 server without opening a browser.
+=======
+### Chess analyzer
+>>>>>>> fec6fbd2f5edcc4a15fad21a72a1e7ee92d8f0b1
