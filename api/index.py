@@ -13,7 +13,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 MAX_UPLOAD_SIZE = 5 * 1024 * 1024
 ENGINE_LOCK = threading.Lock()
 ENGINE = None
@@ -168,6 +168,7 @@ def add_response_headers(response):
 
 
 @app.get("/")
+@app.get("/api/index")
 def index():
     return send_from_directory(ROOT, "index.html")
 
