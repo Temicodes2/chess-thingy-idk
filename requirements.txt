@@ -1,1 +1,3 @@
 python-chess>=1.999
+flask
+gunicorn
