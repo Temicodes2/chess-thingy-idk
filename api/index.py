@@ -1,28 +1,29 @@
 import argparse
-import json
 import os
 from pathlib import Path
 import shutil
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import StringIO
-from urllib.parse import urlparse
 import webbrowser
 
 import chess
 import chess.engine
 import chess.pgn
+from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.exceptions import RequestEntityTooLarge
 
 
 ROOT = Path(__file__).resolve().parent
-WEB_FILES = {
-    "/": ("index.html", "text/html; charset=utf-8"),
-    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
-    "/styles.css": ("styles.css", "text/css; charset=utf-8"),
-}
 MAX_UPLOAD_SIZE = 5 * 1024 * 1024
 ENGINE_LOCK = threading.Lock()
 ENGINE = None
+app = Flask(__name__, static_folder=None)
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_upload_too_large(_error):
+    return jsonify(error="Request body must be smaller than 5 MB."), 413
 
 
 def find_engine():
@@ -158,88 +159,74 @@ def analyze_position(data):
     return {"evaluation": current_score, "moveLoss": move_loss}
 
 
-class ChessRequestHandler(BaseHTTPRequestHandler):
-    server_version = "ChessViewer/1.0"
-
-    def log_message(self, format_string, *args):
-        print(f"[{self.log_date_time_string()}] {format_string % args}")
-
-    def send_json(self, status, data):
-        payload = json.dumps(data).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(payload)
-
-    def read_json(self):
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-        except ValueError as error:
-            raise ValueError("Invalid request length.") from error
-        if length <= 0 or length > MAX_UPLOAD_SIZE:
-            raise ValueError("Request body must be between 1 byte and 5 MB.")
-        try:
-            return json.loads(self.rfile.read(length))
-        except (json.JSONDecodeError, UnicodeDecodeError) as error:
-            raise ValueError("Request body must contain valid JSON.") from error
-
-    def do_GET(self):
-        route = urlparse(self.path).path
-        if route == "/api/games":
-            try:
-                self.send_json(200, {"games": bundled_games()})
-            except (OSError, UnicodeError, ValueError) as error:
-                self.send_json(500, {"error": str(error)})
-            return
-
-        web_file = WEB_FILES.get(route)
-        if web_file is None:
-            self.send_error(404, "Not found")
-            return
-        filename, content_type = web_file
-        try:
-            payload = (ROOT / filename).read_bytes()
-        except OSError:
-            self.send_error(404, "Web app files not found")
-            return
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(payload)))
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        self.wfile.write(payload)
-
-    def do_POST(self):
-        route = urlparse(self.path).path
-        try:
-            data = self.read_json()
-            if not isinstance(data, dict):
-                raise ValueError("The request body must be a JSON object.")
-            if route == "/api/upload":
-                raw_filename = data.get("filename", "game.pgn")
-                pgn_text = data.get("pgn")
-                if not isinstance(raw_filename, str) or not isinstance(pgn_text, str):
-                    raise ValueError("A PGN filename and text are required.")
-                filename = Path(raw_filename).name
-                if not filename.lower().endswith(".pgn"):
-                    raise ValueError("Please choose a file with the .pgn extension.")
-                games = parse_games(pgn_text, filename)
-                self.send_json(200, {"games": games})
-            elif route == "/api/analyze":
-                self.send_json(200, analyze_position(data))
-            else:
-                self.send_error(404, "Not found")
-        except ValueError as error:
-            self.send_json(400, {"error": str(error)})
-        except (OSError, chess.engine.EngineError, chess.engine.EngineTerminatedError) as error:
-            self.send_json(503, {"error": f"Stockfish analysis failed: {error}"})
+@app.after_request
+def add_response_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
-class ChessHTTPServer(ThreadingHTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
+@app.get("/")
+def index():
+    return send_from_directory(ROOT, "index.html")
+
+
+@app.get("/app.js")
+def javascript():
+    return send_from_directory(ROOT, "app.js")
+
+
+@app.get("/styles.css")
+def stylesheet():
+    return send_from_directory(ROOT, "styles.css")
+
+
+@app.get("/api/games")
+def get_games():
+    try:
+        return jsonify(games=bundled_games())
+    except (OSError, UnicodeError, ValueError) as error:
+        return jsonify(error=str(error)), 500
+
+
+@app.post("/api/upload")
+def upload_pgn():
+    data = request.get_json()
+    if not isinstance(data, dict):
+        return jsonify(error="The request body must be a JSON object."), 400
+
+    raw_filename = data.get("filename", "game.pgn")
+    pgn_text = data.get("pgn")
+    if not isinstance(raw_filename, str) or not isinstance(pgn_text, str):
+        return jsonify(error="A PGN filename and text are required."), 400
+
+    filename = Path(raw_filename).name
+    if not filename.lower().endswith(".pgn"):
+        return jsonify(error="Please choose a file with the .pgn extension."), 400
+    try:
+        return jsonify(games=parse_games(pgn_text, filename))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+
+
+@app.post("/api/analyze")
+def analyze():
+    data = request.get_json()
+    try:
+        return jsonify(analyze_position(data))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    except (OSError, chess.engine.EngineError) as error:
+        return jsonify(error=f"Stockfish analysis failed: {error}"), 503
+
+
+@app.errorhandler(400)
+def handle_bad_request(error):
+    if request.path.startswith("/api/"):
+        message = getattr(error, "description", "Invalid request.")
+        return jsonify(error=message), 400
+    return error
 
 
 def main():
@@ -249,19 +236,22 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 
-    server = ChessHTTPServer((args.host, args.port), ChessRequestHandler)
-    url = f"http://{args.host}:{server.server_address[1]}/"
+    url = f"http://{args.host}:{args.port}/"
     print(f"Chess viewer running at {url}")
     print("Press Ctrl+C to stop the server.")
     if not args.no_browser:
         threading.Timer(0.5, webbrowser.open, args=(url,)).start()
 
     try:
-        server.serve_forever()
+        app.run(
+            host=args.host,
+            port=args.port,
+            threaded=True,
+            use_reloader=False,
+        )
     except KeyboardInterrupt:
         print("\nStopping chess viewer...")
     finally:
-        server.server_close()
         if ENGINE is not None:
             ENGINE.quit()
 
