@@ -1,10 +1,4 @@
 {
-  "version": 2,
-  "builds": [
-    { "src": "api/index.py", "use": "@vercel/python" },
-    { "src": "static/**", "use": "@vercel/static" },
-    { "src": "templates/**", "use": "@vercel/static" }
-  ],
   "rewrites": [
     { "source": "/static/(.*)", "destination": "/static/$1" },
     { "source": "/(.*)", "destination": "/api/index" }
