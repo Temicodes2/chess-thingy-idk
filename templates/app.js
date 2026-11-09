@@ -376,26 +376,32 @@ async function analyzePosition(game, ply) {
       position.isGameOver(),
     );
     paintEvaluation(evaluation);
-    state.bestMove = bestMoveUci
+    const previewFen = moveLoss?.bestMoveUci ? previousFen : analysisFen;
+    const previewMoveUci = moveLoss?.bestMoveUci || bestMoveUci;
+    const bestPosition = new Chess(previewFen);
+    state.bestMove = previewMoveUci
       ? {
-          from: bestMoveUci.slice(0, 2),
-          to: bestMoveUci.slice(2, 4),
-          promotion: bestMoveUci[4],
+          from: previewMoveUci.slice(0, 2),
+          to: previewMoveUci.slice(2, 4),
+          promotion: previewMoveUci[4],
+          positionFen: previewFen,
+          color: bestPosition.turn(),
         }
       : null;
     state.showBestMove = false;
     elements.bestMoveButton.disabled = !state.bestMove;
     elements.bestMoveButton.textContent = "Show best move";
     if (state.bestMove) {
-      const bestPosition = new Chess(analysisFen);
       const bestMove = bestPosition.move({
         from: state.bestMove.from,
         to: state.bestMove.to,
         promotion: state.bestMove.promotion,
       });
       state.bestMove.san = bestMove.san;
-      elements.bestMoveText.textContent =
-        `Stockfish recommends ${bestMove.san} (${state.bestMove.from} → ${state.bestMove.to})`;
+      const side = state.bestMove.color === "w" ? "White" : "Black";
+      elements.bestMoveText.textContent = moveLoss
+        ? `Best move for ${side}: ${bestMove.san} (${state.bestMove.from} → ${state.bestMove.to})`
+        : `Stockfish recommends ${bestMove.san} (${state.bestMove.from} → ${state.bestMove.to})`;
     } else {
       elements.bestMoveText.textContent = "No legal moves in this position.";
     }
@@ -441,7 +447,11 @@ function resetQualityOnError() {
 }
 
 function renderBoard(game, ply) {
-  const position = new Chess(displayedFen(game, ply));
+  const position = new Chess(
+    state.showBestMove && state.bestMove
+      ? state.bestMove.positionFen
+      : displayedFen(game, ply),
+  );
   const variationMoves = state.exploration?.moves;
   let lastMove = variationMoves?.length
     ? variationMoves.at(-1).move.uci
@@ -780,8 +790,10 @@ elements.bestMoveButton.addEventListener("click", () => {
     ? "Return to position"
     : "Show best move";
   elements.bestMoveText.textContent = state.showBestMove
-    ? `Previewing ${state.bestMove.san} on the board.`
-    : `Stockfish recommends ${state.bestMove.san} (${state.bestMove.from} → ${state.bestMove.to})`;
+    ? `Previewing ${state.bestMove.color === "w" ? "White's" : "Black's"} best move: ${state.bestMove.san}.`
+    : `${state.bestMove.positionFen !== displayedFen()
+      ? `Best move for ${state.bestMove.color === "w" ? "White" : "Black"}`
+      : "Stockfish recommends"} ${state.bestMove.san} (${state.bestMove.from} → ${state.bestMove.to})`;
   renderBoard(currentGame(), state.ply);
 });
 elements.toggleMovesButton.addEventListener("click", () => {
