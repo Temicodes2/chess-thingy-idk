@@ -9,7 +9,7 @@ import webbrowser
 import chess
 import chess.engine
 import chess.pgn
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
 
@@ -17,7 +17,11 @@ ROOT = Path(__file__).resolve().parent.parent
 MAX_UPLOAD_SIZE = 5 * 1024 * 1024
 ENGINE_LOCK = threading.Lock()
 ENGINE = None
-app = Flask(__name__, static_folder=None)
+app = Flask(
+    __name__,
+    template_folder=str(ROOT / "templates"),
+    static_folder=str(ROOT / "static"),
+)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
 
@@ -170,7 +174,7 @@ def add_response_headers(response):
 @app.get("/")
 @app.get("/api/index")
 def index():
-    return send_from_directory(ROOT, "index.html")
+    return render_template("index.html")
 
 
 @app.get("/app.js")
@@ -180,7 +184,7 @@ def javascript():
 
 @app.get("/styles.css")
 def stylesheet():
-    return send_from_directory(ROOT, "styles.css")
+    return send_from_directory(ROOT / "static", "styles.css")
 
 
 @app.get("/api/games")
