@@ -5,10 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#111713">
     <title>Chess Studio</title>
-    <!-- Change your old stylesheet link to look like this: -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="/styles.css">
+    <!-- Put these right above your static/app.js script tag -->
+    <script src="https://cloudflare.com"></script>
+    <script src="https://jsdelivr.net"></script>
 
-    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script type="module" src="./app.js"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -38,7 +40,7 @@
 
         <section id="dropzone" class="dropzone" aria-label="PGN file drop area">
           <span class="drop-icon" aria-hidden="true">↥</span>
-          <span><strong>Drop a PGN file</strong> here, or <label for="pgn-input">browse files</label></span>
+          <span><strong>Drop a PGN anywhere on this page</strong>, or <label for="pgn-input">browse files</label></span>
           <span class="drop-hint">Your game stays on this device</span>
         </section>
 
@@ -56,12 +58,13 @@
             </div>
 
             <div class="board-wrap">
-              <div id="board" class="board" role="grid" aria-label="Chess board"></div>
+              <div id="board" class="board" role="group" aria-label="Chess board"></div>
               <div class="board-files" aria-hidden="true">
                 <span>a</span><span>b</span><span>c</span><span>d</span>
                 <span>e</span><span>f</span><span>g</span><span>h</span>
               </div>
             </div>
+            <p class="board-instructions">Click a piece, then a highlighted square, or drag it to move.</p>
 
             <div class="board-controls" aria-label="Move navigation">
               <button id="start-button" class="icon-button" title="Go to start" aria-label="Go to start">|◀</button>
@@ -70,6 +73,25 @@
               <button id="next-button" class="icon-button primary-control" title="Next move" aria-label="Next move">→</button>
               <button id="end-button" class="icon-button" title="Go to end" aria-label="Go to end">▶|</button>
             </div>
+
+            <section class="panel moves-panel">
+              <div class="panel-heading moves-heading">
+                <div>
+                  <p class="eyebrow">SCORECARD</p>
+                  <h2>Moves <span id="move-count" class="move-count">0 plies</span></h2>
+                </div>
+                <button
+                  id="toggle-moves-button"
+                  class="toggle-moves-button"
+                  type="button"
+                  aria-expanded="true"
+                  aria-controls="move-content"
+                >Hide moves</button>
+              </div>
+              <div id="move-content" class="moves-content">
+                <div id="move-list" class="move-list" aria-label="Game moves"></div>
+              </div>
+            </section>
           </div>
 
           <aside class="analysis-column">
@@ -99,6 +121,12 @@
                 <div class="bar-captions"><span>Black advantage</span><span>White advantage</span></div>
               </div>
               <p id="analysis-status" class="analysis-status" aria-live="polite">Waiting for position…</p>
+              <div class="best-move-row">
+                <button id="best-move-button" class="best-move-button" type="button" disabled>
+                  Show best move
+                </button>
+                <span id="best-move-text" class="best-move-text">Analyzing position…</span>
+              </div>
             </section>
 
             <section class="panel quality-panel">
@@ -117,20 +145,35 @@
               <p id="move-loss" class="move-loss">Play or select a move to review it.</p>
             </section>
 
-            <section class="panel moves-panel">
-              <div class="panel-heading moves-heading">
+            <section class="panel explanation-panel" aria-live="polite">
+              <div class="panel-heading">
                 <div>
-                  <p class="eyebrow">SCORECARD</p>
-                  <h2>Moves</h2>
+                  <p class="eyebrow">LOCAL MOVE COACH</p>
+                  <h2 id="explanation-title">Move explanation</h2>
                 </div>
-                <span id="move-count" class="move-count">0 plies</span>
+                <span class="engine-badge"><span class="status-dot"></span>On-device</span>
               </div>
-              <div id="move-list" class="move-list" aria-label="Game moves"></div>
+              <p id="explanation-text" class="explanation-text">
+                Select a move to see why Stockfish considers it strong or weak.
+              </p>
+              <p id="explanation-detail" class="explanation-detail">
+                Explanations use the engine's evaluation and best continuation. No move data leaves your browser.
+              </p>
             </section>
+
           </aside>
         </section>
         <p id="app-message" class="app-message" role="status" aria-live="polite"></p>
       </main>
+      <dialog id="promotion-dialog" class="promotion-dialog" aria-labelledby="promotion-title">
+        <h2 id="promotion-title">Choose a promotion</h2>
+        <div id="promotion-options" class="promotion-options">
+          <button type="button" data-promotion="q">Queen</button>
+          <button type="button" data-promotion="r">Rook</button>
+          <button type="button" data-promotion="b">Bishop</button>
+          <button type="button" data-promotion="n">Knight</button>
+        </div>
+      </dialog>
       <footer><span>♞</span> A quiet place to study the game.</footer>
     </div>
   </body>

@@ -1,0 +1,14 @@
+{
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/prepare-assets.mjs && vite --host 127.0.0.1",
+    "build": "node scripts/prepare-assets.mjs && vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0"
+  },
+  "devDependencies": {
+    "vite": "^6.4.6"
+  }
+}
