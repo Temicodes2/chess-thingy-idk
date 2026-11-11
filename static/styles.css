@@ -251,6 +251,62 @@ h1 {
   border-color: var(--accent);
 }
 
+.game-link-form {
+  display: grid;
+  gap: 7px;
+  margin: -7px 0 21px;
+}
+
+.fen-form {
+  margin-top: -12px;
+}
+
+.game-link-form > label {
+  color: #b7c3b8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.game-link-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.game-link-controls input {
+  min-width: 0;
+  flex: 1;
+  padding: 9px 11px;
+  border: 1px solid #344137;
+  border-radius: 6px;
+  color: #e8eee8;
+  background: #171f19;
+  font-size: 12px;
+}
+
+.game-link-controls input::placeholder {
+  color: #718074;
+}
+
+.game-link-controls input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.game-link-button {
+  font-size: 11px;
+}
+
+.game-link-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.game-link-hint {
+  margin: 0;
+  color: #768478;
+  font-size: 10px;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
@@ -694,14 +750,14 @@ h2 {
   margin: 0;
   color: #d7e3d5;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.65;
 }
 
 .explanation-detail {
   margin: 8px 0 0;
   color: #93a194;
-  font-size: 10px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 .square.best-move-from,
@@ -899,6 +955,13 @@ h2 {
   border-bottom: 1px solid rgb(53 66 54 / 53%);
 }
 
+.move-side {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .move-number {
   color: #778579;
   font-family: "DM Mono", monospace;
@@ -930,6 +993,43 @@ h2 {
 .move-button.selected {
   color: #e0f6c1;
   background: #35452b;
+}
+
+.move-button.move-inaccuracy {
+  color: #efcf83;
+}
+
+.move-button.move-mistake,
+.move-button.move-blunder {
+  color: #f1a28d;
+}
+
+.move-why-button {
+  padding: 3px 5px;
+  border: 1px solid #67443b;
+  border-radius: 4px;
+  color: #f0ad8e;
+  background: #33231f;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.move-why-button:hover {
+  border-color: #b66b56;
+  background: #422923;
+}
+
+.move-why-details {
+  grid-column: 1 / -1;
+  margin: 3px 3px 7px;
+  padding: 9px 10px;
+  border-left: 2px solid #d38b5e;
+  border-radius: 0 5px 5px 0;
+  color: #c4cec4;
+  background: #202820;
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 .move-button.empty {
@@ -1026,6 +1126,18 @@ footer span {
     gap: 7px;
     padding: 9px;
     font-size: 11px;
+  }
+
+  .game-link-controls {
+    align-items: stretch;
+  }
+
+  .game-link-controls input {
+    font-size: 11px;
+  }
+
+  .game-link-button {
+    padding-inline: 8px;
   }
 
   .drop-hint {

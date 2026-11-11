@@ -6,10 +6,6 @@
     <meta name="theme-color" content="#111713">
     <title>Chess Studio</title>
     <link rel="stylesheet" href="/styles.css">
-    <!-- Put these right above your static/app.js script tag -->
-    <script src="https://cloudflare.com"></script>
-    <script src="https://jsdelivr.net"></script>
-
     <script type="module" src="./app.js"></script>
   </head>
   <body>
@@ -43,6 +39,42 @@
           <span><strong>Drop a PGN anywhere on this page</strong>, or <label for="pgn-input">browse files</label></span>
           <span class="drop-hint">Your game stays on this device</span>
         </section>
+
+        <form id="game-link-form" class="game-link-form">
+          <label for="game-link-input">Analyze a game link</label>
+          <div class="game-link-controls">
+            <input
+              id="game-link-input"
+              type="url"
+              inputmode="url"
+              placeholder="Paste a Lichess game URL or direct PGN link"
+              autocomplete="url"
+              required
+            >
+            <button id="game-link-button" class="best-move-button" type="submit">
+              Load game
+            </button>
+          </div>
+          <p class="game-link-hint">Lichess links and direct PGN URLs work. For Chess.com games, download the PGN and open the file.</p>
+        </form>
+
+        <form id="fen-form" class="game-link-form fen-form">
+          <label for="fen-input">Analyze a FEN position</label>
+          <div class="game-link-controls">
+            <input
+              id="fen-input"
+              type="text"
+              placeholder="Paste a FEN position"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            >
+            <button id="fen-button" class="best-move-button" type="submit">
+              Analyze position
+            </button>
+          </div>
+          <p class="game-link-hint">FEN loads the current board position and side to move; it does not include earlier moves.</p>
+        </form>
 
         <section class="workspace">
           <div class="board-column">

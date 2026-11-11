@@ -30,6 +30,8 @@ const state = {
   suppressBoardClick: false,
   exploration: null,
   fileDragDepth: 0,
+  moveReviews: new Map(),
+  expandedMoveReview: null,
 };
 
 const elements = {
@@ -42,6 +44,11 @@ const elements = {
   moveCount: document.querySelector("#move-count"),
   toggleMovesButton: document.querySelector("#toggle-moves-button"),
   moveContent: document.querySelector("#move-content"),
+  gameLinkForm: document.querySelector("#game-link-form"),
+  gameLinkInput: document.querySelector("#game-link-input"),
+  gameLinkButton: document.querySelector("#game-link-button"),
+  fenForm: document.querySelector("#fen-form"),
+  fenInput: document.querySelector("#fen-input"),
   whiteScore: document.querySelector("#white-score"),
   blackScore: document.querySelector("#black-score"),
   evaluationBar: document.querySelector("#evaluation-bar"),
@@ -188,7 +195,7 @@ class BrowserStockfish {
   }
 }
 
-function setQuality(name, loss) {
+function setQuality(name, loss, lossDescription) {
   elements.qualityBadge.className = "quality-badge";
   if (name === null) {
     elements.qualityBadge.textContent = "—";
@@ -208,7 +215,7 @@ function setQuality(name, loss) {
   elements.qualityBadge.textContent = name;
   elements.qualityBadge.classList.add(classes[name] || "neutral");
   elements.qualityMarker.style.left = `${Math.min(loss / 2, 1) * 100}%`;
-  elements.moveLoss.textContent = `${loss.toFixed(2)} pawn loss`;
+  elements.moveLoss.textContent = lossDescription || `${loss.toFixed(2)} pawn loss`;
 }
 
 function resetAnalysis(message) {
@@ -249,21 +256,26 @@ function moveQuality(loss) {
   return "Blunder";
 }
 
-function moveExplanation(move, alternative, loss, playedBestMove) {
+function moveExplanation(move, alternative, loss, playedBestMove, scoreContext) {
   const quality = moveQuality(loss);
   const moveName = move.san;
-  const alternativeText = alternative
-    ? `Stockfish's top continuation was ${alternative}.`
-    : "There was no alternative move.";
-  let context = "";
+  const mover = scoreContext.moverSign === 1 ? "White" : "Black";
+  const before = formatScore(
+    scoreContext.bestScore,
+    scoreContext.moverSign === 1,
+    false,
+  );
+  const after = formatScore(
+    scoreContext.playedScore,
+    scoreContext.moverSign === 1,
+    false,
+  );
+  const context = [];
 
   if (move.flags.includes("k") || move.flags.includes("q")) {
-    context = " Castling moves the king toward safety and brings a rook into play.";
-  } else if (move.san.endsWith("#")) {
-    context = " This delivers checkmate and ends the game.";
-  } else if (move.san.endsWith("+")) {
-    context = " This gives check, forcing the opponent to answer the king threat.";
-  } else if (move.captured) {
+    context.push("You castled, moving the king toward safety while activating a rook.");
+  }
+  if (move.captured) {
     const pieceNames = {
       p: "pawn",
       n: "knight",
@@ -271,32 +283,112 @@ function moveExplanation(move, alternative, loss, playedBestMove) {
       r: "rook",
       q: "queen",
     };
-    context = ` This captures a ${pieceNames[move.captured] || "piece"}.`;
-  } else if (move.promotion) {
-    context = ` This promotes a pawn to a ${move.promotion}.`;
+    context.push(`The move captures a ${pieceNames[move.captured] || "piece"}.`);
+  }
+  if (move.san.endsWith("#")) {
+    context.push("It gives checkmate.");
+  } else if (move.san.endsWith("+")) {
+    context.push("It gives check, so the opponent must answer the king threat.");
+  }
+  if (move.promotion) {
+    context.push(`The pawn promotes to a ${move.promotion}.`);
   }
 
+  let tip;
   if (playedBestMove) {
+    tip = "Keep checking forcing moves and king safety before settling on a move; here your choice matches the engine's top option.";
     return {
       title: `${moveName}: engine's top choice`,
-      text: `${moveName} matches Stockfish's best move, keeping the strongest continuation available.`,
-      detail: context.trim() || `The engine found no better move in this position. Evaluation loss: ${loss.toFixed(2)} pawns.`,
+      text: `${mover}'s ${moveName} matches Stockfish's preferred move in this position.`,
+      detail: `${context.join(" ") || "This move preserves the strongest continuation found at the current analysis depth."} The engine's evaluation changed by only ${loss.toFixed(2)} pawns compared with its preferred line. ${tip}`,
     };
   }
 
-  if (loss < 0.2) {
-    return {
-      title: `${moveName}: ${quality.toLowerCase()}`,
-      text: `${moveName} is very close to the engine's top choice, with only ${loss.toFixed(2)} pawns of evaluation difference.`,
-      detail: `${alternativeText}${context}`,
-    };
+  if (loss >= 2) {
+    tip = "Before moving, scan all checks, captures, and direct threats for both sides. Then check whether your intended destination is defended and what your opponent can win immediately.";
+  } else if (loss >= 1) {
+    tip = "Pause to look for your opponent's forcing reply and count attackers versus defenders on the piece or square you are changing.";
+  } else if (loss >= 0.5) {
+    tip = "Compare a few candidate moves and ask what your opponent can threaten next; check that important pieces remain protected.";
+  } else {
+    tip = "This was close to the engine's choice. Keep comparing safe developing moves and forcing tactics before committing.";
   }
 
+  const lossSummary = scoreContext.forcedMate
+    ? "the move allows a forced mate for the opponent"
+    : `a loss of ${loss.toFixed(2)} pawns against the engine's best continuation`;
+  const reason = `${mover}'s evaluation shifted from ${before} on the position before the move to ${after} after ${moveName}; ${lossSummary}. This is Stockfish's estimate at the current search depth, not a certainty about the game result.`;
+  const alternativeText = alternative
+    ? `The strongest alternative it found was ${alternative}.`
+    : "The engine did not find a legal alternative.";
+  const moveContext = context.length
+    ? ` Move facts: ${context.join(" ")}`
+    : "";
   return {
     title: `${moveName}: ${quality.toLowerCase()}`,
-    text: `${moveName} gives up ${loss.toFixed(2)} pawns of evaluation compared with the engine's strongest continuation.`,
-    detail: `${alternativeText}${context || " The resulting position is what Stockfish evaluates; try the suggested move to compare."}`,
+    text: reason,
+    detail: `${alternativeText}${moveContext} Coaching tip: ${tip}`,
+    tip,
   };
+}
+
+function moveReviewKey(game, ply) {
+  return `${game.id}:${ply}`;
+}
+
+function showMoveCoach(explanation) {
+  elements.explanationTitle.textContent = explanation.title;
+  elements.explanationText.textContent = explanation.text;
+  elements.explanationDetail.textContent = explanation.detail;
+}
+
+function renderMoveReview(game, ply) {
+  const side = elements.moveList.querySelector(`[data-move-ply="${ply}"]`);
+  const moveButton = side?.querySelector(".move-button");
+  if (!side || !moveButton) return;
+
+  side.querySelector(".move-why-button")?.remove();
+  side.querySelector(".move-why-details")?.remove();
+  for (const qualityClass of ["good", "inaccuracy", "mistake", "blunder"]) {
+    moveButton.classList.remove(`move-${qualityClass}`);
+  }
+
+  const review = state.moveReviews.get(moveReviewKey(game, ply));
+  if (!review) return;
+
+  if (review.loss >= 0.5) {
+    moveButton.classList.add(`move-${review.qualityClass}`);
+  }
+  moveButton.title = `${review.quality}: ${review.loss.toFixed(2)} pawn loss`;
+  if (review.loss < 0.5) return;
+
+  const whyButton = document.createElement("button");
+  whyButton.type = "button";
+  whyButton.className = "move-why-button";
+  whyButton.textContent = "Why?";
+  whyButton.setAttribute(
+    "aria-label",
+    `Explain why ${moveButton.textContent} was ${review.quality.toLowerCase()}`,
+  );
+  const details = document.createElement("div");
+  details.className = "move-why-details";
+  details.textContent = `${review.explanation.text} ${review.explanation.detail}`;
+  const reviewKey = moveReviewKey(game, ply);
+  details.hidden = state.expandedMoveReview !== reviewKey;
+  whyButton.textContent = details.hidden ? "Why?" : "Hide";
+  whyButton.addEventListener("click", () => {
+    if (state.expandedMoveReview === reviewKey) {
+      state.expandedMoveReview = null;
+      details.hidden = true;
+      whyButton.textContent = "Why?";
+      return;
+    }
+    state.expandedMoveReview = reviewKey;
+    showPosition(ply);
+    showMoveCoach(review.explanation);
+  });
+  side.append(whyButton);
+  side.append(details);
 }
 
 function resetMoveExplanation() {
@@ -416,17 +508,38 @@ async function analyzePosition(game, ply) {
     } else {
       const playedScore = evaluation.cp * moveLoss.moverSign;
       const bestMoveScore = moveLoss.bestScore.cp * moveLoss.moverSign;
-      const loss = Math.max(0, (bestMoveScore - playedScore) / 100);
-      setQuality(moveQuality(loss), loss);
+      const forcedMate = evaluation.mate !== null &&
+        (evaluation.mate === 0
+          ? playedScore < 0
+          : evaluation.mate * moveLoss.moverSign < 0);
+      const loss = forcedMate
+        ? 2
+        : Math.max(0, (bestMoveScore - playedScore) / 100);
       const explanation = moveExplanation(
         moveLoss.playedMove,
         moveLoss.bestMoveSan,
         loss,
         moveLoss.playedMove.uci === moveLoss.bestMoveUci,
+        {
+          moverSign: moveLoss.moverSign,
+          bestScore: moveLoss.bestScore,
+          playedScore: evaluation,
+          forcedMate,
+        },
       );
-      elements.explanationTitle.textContent = explanation.title;
-      elements.explanationText.textContent = explanation.text;
-      elements.explanationDetail.textContent = explanation.detail;
+      const quality = moveQuality(loss);
+      setQuality(quality, loss, forcedMate ? "Allows a forced mate" : undefined);
+      showMoveCoach(explanation);
+      const review = {
+        loss,
+        quality,
+        qualityClass: quality === "Inaccuracy"
+          ? "inaccuracy"
+          : quality.toLowerCase(),
+        explanation,
+      };
+      state.moveReviews.set(moveReviewKey(game, ply), review);
+      renderMoveReview(game, ply);
     }
   } catch (error) {
     if (error.name === "AbortError" || requestId !== state.analysisRequest) return;
@@ -664,10 +777,13 @@ function renderMoveList(game) {
     for (let offset = 0; offset < 2; offset += 1) {
       const moveIndex = index + offset;
       const move = game.moves[moveIndex];
+      const side = document.createElement("div");
+      side.className = "move-side";
       const button = document.createElement("button");
       button.type = "button";
       button.className = "move-button";
       if (move) {
+        side.dataset.movePly = String(moveIndex + 1);
         button.textContent = move.san;
         button.setAttribute(
           "aria-label",
@@ -675,13 +791,21 @@ function renderMoveList(game) {
         );
         if (state.ply === moveIndex + 1) button.classList.add("selected");
         button.addEventListener("click", () => showPosition(moveIndex + 1));
+        side.append(button);
+        row.append(side);
       } else {
         button.classList.add("empty");
         button.disabled = true;
+        side.append(button);
+        row.append(side);
       }
-      row.append(button);
     }
     elements.moveList.append(row);
+    for (let offset = 0; offset < 2; offset += 1) {
+      if (game.moves[index + offset]) {
+        renderMoveReview(game, index + offset + 1);
+      }
+    }
   }
 
   const selectedMove = elements.moveList.querySelector(".move-button.selected");
@@ -771,14 +895,150 @@ async function loadPgnFile(file) {
   }
 
   try {
-    const games = parsePgn(await file.text(), file.name);
-    loadGames(games, `Loaded ${games.length} game${games.length === 1 ? "" : "s"} from ${file.name}.`);
+    loadPgnText(await file.text(), file.name);
   } catch (error) {
     showMessage(error.message);
   } finally {
     elements.fileInput.value = "";
   }
 }
+
+function getPgnSourceUrl(gameUrl) {
+  let url;
+  try {
+    url = new URL(gameUrl);
+  } catch {
+    throw new Error("Enter a complete game URL, including https://.");
+  }
+  if (url.protocol !== "https:") {
+    throw new Error("For safety, game links must use HTTPS.");
+  }
+
+  const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+  if (hostname === "lichess.org") {
+    const gameId = url.pathname
+      .split("/")
+      .filter(Boolean)
+      .find((segment) => /^[a-z\d]{8}$/i.test(segment));
+    if (!gameId) {
+      throw new Error("That does not look like a Lichess game link.");
+    }
+    return `https://lichess.org/api/game/export/${gameId}?clocks=false&evals=false`;
+  }
+
+  return url.href;
+}
+
+function isChessComGameLink(gameUrl) {
+  try {
+    const url = new URL(gameUrl);
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    return hostname === "chess.com" && /^\/game(?:\/|$)/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+async function readLimitedResponse(response) {
+  const maxBytes = 5 * 1024 * 1024;
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error("PGN links must return less than 5 MB.");
+  }
+  if (!response.body) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) {
+      throw new Error("PGN links must return less than 5 MB.");
+    }
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new Error("PGN links must return less than 5 MB.");
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+function loadPgnText(pgnText, sourceName) {
+  const games = parsePgn(pgnText, sourceName);
+  loadGames(games, `Loaded ${games.length} game${games.length === 1 ? "" : "s"} from ${sourceName}.`);
+}
+
+elements.fenForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const fen = elements.fenInput.value.trim();
+  try {
+    const position = new Chess(fen);
+    const headers = position.getHeaders();
+    const game = {
+      id: `fen:${Date.now()}`,
+      filename: "Pasted FEN",
+      white: headers.White && headers.White !== "?" ? headers.White : "White",
+      black: headers.Black && headers.Black !== "?" ? headers.Black : "Black",
+      result: "*",
+      initialFen: position.fen(),
+      positions: [position.fen()],
+      moves: [],
+    };
+    loadGames([game], "Loaded FEN position. The move history starts from this position.");
+  } catch {
+    showMessage("That FEN is invalid. Paste all six fields of a standard chess FEN.");
+  }
+});
+
+async function loadGameLink(gameUrl) {
+  elements.gameLinkButton.disabled = true;
+  showMessage("Fetching game…");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const sourceUrl = getPgnSourceUrl(gameUrl);
+    const response = await fetch(sourceUrl, {
+      headers: { Accept: "application/x-chess-pgn, text/plain;q=0.9" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`The game link returned HTTP ${response.status}.`);
+    }
+    const pgnText = await readLimitedResponse(response);
+    loadPgnText(pgnText, "game link");
+  } catch (error) {
+    if (error.name === "AbortError") {
+      showMessage("The game link took too long to respond. Try again or upload the PGN file.");
+    } else if (error instanceof TypeError) {
+      showMessage(isChessComGameLink(gameUrl)
+        ? "Chess.com game links cannot be imported directly by this static app. Download the game's PGN from Chess.com, then use Open PGN."
+        : "This site blocks browser access to its game data (CORS). Try a direct PGN download link or upload the PGN file.");
+    } else {
+      showMessage(error.message);
+    }
+  } finally {
+    clearTimeout(timeout);
+    elements.gameLinkButton.disabled = false;
+  }
+}
+
+elements.gameLinkForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void loadGameLink(elements.gameLinkInput.value.trim());
+});
 
 document.querySelector("#start-button").addEventListener("click", () => showPosition(0));
 document.querySelector("#previous-button").addEventListener("click", () => showPosition(state.ply - 1));
