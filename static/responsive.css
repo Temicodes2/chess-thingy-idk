@@ -1,0 +1,33 @@
+/* Keep the board square and size every square from the same grid tracks. */
+.app-shell {
+  width: min(1360px, 100%);
+}
+
+.board-wrap {
+  width: 100%;
+  max-width: 700px;
+}
+
+.board {
+  grid-template-rows: repeat(8, minmax(0, 1fr));
+  container-type: inline-size;
+}
+
+.square {
+  min-height: 0;
+}
+
+.piece {
+  display: block;
+  max-width: 100%;
+  font-size: clamp(16px, 9.5cqw, 66px);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+@media (max-width: 650px) {
+  .board-wrap {
+    width: 100%;
+    max-width: 700px;
+  }
+}
