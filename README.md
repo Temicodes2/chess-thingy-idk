@@ -17,11 +17,8 @@ PGN file into the page to review another game. You can also paste a Lichess
 game URL or a direct PGN download URL into **Analyze a game link**. Chess.com
 game pages cannot be imported directly by the static app because Chess.com
 blocks browser requests to its game data; download the game's PGN and open that
-file instead. To analyze a position from Chess.com, paste its FEN into
-**Analyze a FEN position**; FEN includes the board state and side to move, but
-not the earlier move history. Stockfish WASM and its license are included in
-`static/vendor`. Reviewing a move gives an engine-based explanation and
-coaching tip; analyzed inaccuracies, mistakes, and blunders also get a **Why?**
-button in the move list.
+file instead. Stockfish WASM and its license are included in `static/vendor`.
+Reviewing a move gives an engine-based explanation and coaching tip; analyzed
+inaccuracies, mistakes, and blunders also get a **Why?** button in the move list.
 
 Run `npm run build` to create the static site in `dist` for deployment.
