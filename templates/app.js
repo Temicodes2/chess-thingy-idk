@@ -15,6 +15,14 @@ const PIECES = {
   p: "♟",
 };
 
+const PIECE_VALUES = {
+  p: 1,
+  n: 3,
+  b: 3,
+  r: 5,
+  q: 9,
+};
+
 const state = {
   games: [],
   gameIndex: 0,
@@ -84,6 +92,205 @@ function displayedFen(game = currentGame(), ply = state.ply) {
   return state.exploration?.fen || currentFen(game, ply);
 }
 
+function squareFromCoords(row, col) {
+  return `${String.fromCharCode(97 + col)}${8 - row}`;
+}
+
+function findKingSquare(board, color) {
+  const rows = board.board();
+  for (let row = 0; row < rows.length; row += 1) {
+    for (let col = 0; col < rows[row].length; col += 1) {
+      const piece = rows[row][col];
+      if (piece && piece.color === color && piece.type === "k") {
+        return squareFromCoords(row, col);
+      }
+    }
+  }
+  return null;
+}
+
+function findQueenSquare(board, color) {
+  const rows = board.board();
+  for (let row = 0; row < rows.length; row += 1) {
+    for (let col = 0; col < rows[row].length; col += 1) {
+      const piece = rows[row][col];
+      if (piece && piece.color === color && piece.type === "q") {
+        return squareFromCoords(row, col);
+      }
+    }
+  }
+  return null;
+}
+
+function squareIsAttacked(board, targetSquare, byColor) {
+  const rows = board.board();
+  for (let row = 0; row < rows.length; row += 1) {
+    for (let col = 0; col < rows[row].length; col += 1) {
+      const piece = rows[row][col];
+      if (!piece || piece.color !== byColor) continue;
+      const squareName = squareFromCoords(row, col);
+      const targets = board.moves({ square: squareName, verbose: true });
+      if (targets.some((move) => move.to === targetSquare)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function extractPvFacts(fen, pvMoves = [], sideToMove = null) {
+  if (!fen || !Array.isArray(pvMoves) || !pvMoves.length) {
+    return {
+      tactical: false,
+      summary: "The engine line stays quiet and positional.",
+      line: [],
+    };
+  }
+
+  const board = new Chess(fen);
+  const moves = pvMoves.slice(0, 6);
+  const line = [];
+  let checkmate = null;
+  let fork = null;
+  let check = null;
+  let material = null;
+
+  for (let index = 0; index < moves.length; index += 1) {
+    const uci = moves[index];
+    const from = uci.slice(0, 2);
+    const to = uci.slice(2, 4);
+    const promotion = uci[4] || undefined;
+    const move = board.move({ from, to, promotion });
+    if (!move) break;
+
+    line.push({
+      san: move.san,
+      uci,
+      piece: move.piece,
+      color: move.color,
+      captured: move.captured,
+    });
+
+    const after = new Chess(board.fen());
+    const moverColor = move.color;
+    const opponentColor = moverColor === "w" ? "b" : "w";
+
+    if (after.isCheckmate()) {
+      checkmate = {
+        side: moverColor === "w" ? "White" : "Black",
+        move: move.san,
+      };
+      break;
+    }
+
+    const opponentKing = findKingSquare(after, opponentColor);
+    if (opponentKing && squareIsAttacked(after, opponentKing, moverColor)) {
+      check = {
+        side: moverColor === "w" ? "White" : "Black",
+        move: move.san,
+      };
+    }
+
+    if (move.captured) {
+      const capturedValue = PIECE_VALUES[move.captured] ?? 0;
+      if (capturedValue >= 3) {
+        material = {
+          side: moverColor === "w" ? "White" : "Black",
+          move: move.san,
+          captured: move.captured,
+        };
+      }
+    }
+
+    const enemyKing = findKingSquare(after, opponentColor);
+    const enemyQueen = findQueenSquare(after, opponentColor);
+    if (enemyKing && enemyQueen) {
+      const kingThreatened = squareIsAttacked(after, enemyKing, moverColor);
+      const queenThreatened = squareIsAttacked(after, enemyQueen, moverColor);
+      if (kingThreatened && queenThreatened) {
+        fork = {
+          side: moverColor === "w" ? "White" : "Black",
+          move: move.san,
+          targets: ["king", "queen"],
+        };
+        break;
+      }
+    }
+  }
+
+  if (checkmate || fork || check || material) {
+    return {
+      tactical: true,
+      checkmate,
+      fork,
+      check,
+      material,
+      line,
+      side: sideToMove,
+      summary: "The engine line contains a tactical idea.",
+    };
+  }
+
+  return {
+    tactical: false,
+    summary: "The engine line stays quiet and positional.",
+    line,
+    side: sideToMove,
+  };
+}
+
+function generateCoachText(facts) {
+  if (facts?.checkmate) {
+    return {
+      title: `${facts.checkmate.side} is mating`,
+      text: `${facts.checkmate.side} can finish the game after ${facts.checkmate.move}.`,
+      detail: "The line reaches checkmate, so the move sequence is forcing and the opponent has no legal defense.",
+      tip: "When a forced mate is on the board, do not trade away your last defender. Finish with the move that leaves no escape squares.",
+    };
+  }
+
+  if (facts?.fork) {
+    return {
+      title: `${facts.fork.side} creates a fork`,
+      text: `${facts.fork.side}'s ${facts.fork.move} attacks the king and queen at the same time.`,
+      detail: "A fork is a double attack: the opponent has to choose one threat, which usually creates a material or positional win.",
+      tip: "Scan for direct attacks on the king and a high-value piece together, especially after a forcing check or a quiet move that opens a line.",
+    };
+  }
+
+  if (facts?.check) {
+    return {
+      title: `${facts.check.side} keeps the initiative`,
+      text: `${facts.check.side} keeps the attack alive with ${facts.check.move}.`,
+      detail: "The line creates a check or direct threat, forcing the other side to respond and reducing their choices.",
+      tip: "When a check is forcing, calculate the opponent's only replies and then look for the follow-up tactic behind the move.",
+    };
+  }
+
+  if (facts?.material) {
+    const pieceName = {
+      p: "pawn",
+      n: "knight",
+      b: "bishop",
+      r: "rook",
+      q: "queen",
+    }[facts.material.captured] || "piece";
+    return {
+      title: `${facts.material.side} wins material`,
+      text: `${facts.material.side} wins a ${pieceName} after ${facts.material.move}.`,
+      detail: "The engine line gains a valuable piece and converts the extra material into a clear positional advantage.",
+      tip: "Count material after each forcing sequence and ask whether your move creates an immediate capture or a dangerous positional squeeze.",
+    };
+  }
+
+  return {
+    title: "Positional squeeze",
+    text: "The engine line is quiet but still prefers a steady positional edge.",
+    detail: "The continuation is not tactical, which means the side with the better structure, king safety, and piece activity is likely to gain an advantage over time.",
+    tip: "Look for the better pawn structure, safer king, and more active pieces before chasing a shortcut or a speculative tactic.",
+  };
+}
+
 class BrowserStockfish {
   constructor(onStatus) {
     this.onStatus = onStatus;
@@ -140,6 +347,14 @@ class BrowserStockfish {
               mate: value,
             };
       }
+
+      const pvMatch = line.match(/\bpv\b(.*)$/i);
+      if (pvMatch) {
+        const rawPv = pvMatch[1].trim();
+        if (rawPv) {
+          this.active.pv = rawPv.split(/\s+/).filter(Boolean);
+        }
+      }
       return;
     }
 
@@ -151,7 +366,7 @@ class BrowserStockfish {
         cp: job.score.cp * turnSign,
         mate: job.score.mate === null ? null : job.score.mate * turnSign,
       };
-      const result = { ...score, bestMove: line.split(/\s+/)[1] };
+      const result = { ...score, bestMove: line.split(/\s+/)[1], pv: job.pv || [] };
       this.cache.set(job.fen, result);
       if (this.cache.size > 256) {
         this.cache.delete(this.cache.keys().next().value);
@@ -188,7 +403,7 @@ class BrowserStockfish {
     }
     if (this.active || !this.pending) return;
 
-    this.active = { ...this.pending, score: { cp: 0, mate: null } };
+    this.active = { ...this.pending, score: { cp: 0, mate: null }, pv: [] };
     this.pending = null;
     this.worker.postMessage(`position fen ${this.active.fen}`);
     this.worker.postMessage(`go depth ${this.active.depth}`);
@@ -324,9 +539,18 @@ function moveExplanation(move, alternative, loss, playedBestMove, scoreContext) 
   const moveContext = context.length
     ? ` Move facts: ${context.join(" ")}`
     : "";
+
+  const coachFacts = extractPvFacts(
+    scoreContext.positionFen || null,
+    scoreContext.pv || [],
+    scoreContext.moverSign === 1 ? "w" : "b",
+  );
+  const coach = generateCoachText(coachFacts);
+  const coachText = `${coach.text} ${coach.detail}`.trim();
+
   return {
     title: `${moveName}: ${quality.toLowerCase()}`,
-    text: reason,
+    text: `${reason} ${coachText}`.trim(),
     detail: `${alternativeText}${moveContext} Coaching tip: ${tip}`,
     tip,
   };
@@ -438,6 +662,8 @@ async function analyzePosition(game, ply) {
         bestMoveSan: bestMove?.san || null,
         bestMoveUci: bestScore.bestMove,
         playedMove,
+        pv: bestScore.pv || [],
+        positionFen: previousFen,
       };
     }
 
@@ -525,6 +751,8 @@ async function analyzePosition(game, ply) {
           bestScore: moveLoss.bestScore,
           playedScore: evaluation,
           forcedMate,
+          pv: moveLoss.pv,
+          positionFen: moveLoss.positionFen,
         },
       );
       const quality = moveQuality(loss);
