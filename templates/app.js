@@ -23,6 +23,56 @@ const PIECE_VALUES = {
   q: 9,
 };
 
+class ChessFact {
+  constructor(tag, priority, piece = "", square = "", targets = [], metadata = {}) {
+    this.tag = tag;
+    this.priority = priority;
+    this.piece = piece;
+    this.square = square;
+    this.targets = Array.isArray(targets) ? targets : [];
+    this.metadata = metadata || {};
+  }
+}
+
+const FACT_TEMPLATES = {
+  ALLOWED_MATE: [
+    "The move misses the forced mate, and {piece} is now allowing a finishing sequence.",
+    "This is the kind of move that hands the opponent the mate: {best_move} would have ended the game.",
+  ],
+  CREATED_FORK: [
+    "Great find! Your {piece} on {square} forks the enemy {target1} and {target2}.",
+    "Nice tactic—moving the {piece} to {square} attacks both the {target1} and {target2} at once.",
+  ],
+  HUNG_PIECE: [
+    "Careful! Moving to {square} leaves your {piece} completely undefended.",
+    "This blunders your {piece} on {square}; no other piece is protecting it.",
+  ],
+  BLUNDERED_MATERIAL: [
+    "This move drops a {piece} by allowing {target1} to be won.",
+    "The engine punishes this with a material loss: the move allows the opponent to grab the {target1}.",
+  ],
+  MISSED_FORK: [
+    "You missed a tactical shot! Playing {best_move} would have forked the {target1} and {target2}.",
+    "Instead of {played_move}, {best_move} was stronger because it forks the {target1} and {target2}.",
+  ],
+  DEVELOPED_PIECE: [
+    "Good development: your {piece} leaves the back rank and starts contributing to the game.",
+    "This is a useful opening move because it gets the {piece} active without wasting time.",
+  ],
+  CASTLED_KINGSIDE: [
+    "Good castle! You brought the rook toward the center and kept the king safer on the {square} side.",
+    "Castling kingside is a positionally sound move, activating the rook and reducing king exposure.",
+  ],
+  CASTLED_QUEENSIDE: [
+    "Good castle! You brought the rook toward the center and kept the king safer on the {square} side.",
+    "Castling queenside is a practical move because it hides the king and activates the rook.",
+  ],
+  POSITIONAL_EDGE: [
+    "The engine prefers a quiet positional edge here, so keep improving your pieces and king safety.",
+    "This line is not tactical, but the better structure and king safety still matter more than a flashy move.",
+  ],
+};
+
 const state = {
   games: [],
   gameIndex: 0,
@@ -138,22 +188,55 @@ function squareIsAttacked(board, targetSquare, byColor) {
   return false;
 }
 
+function pieceNameFromCode(code) {
+  const names = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
+  return names[code] || code || "piece";
+}
+
+function pieceNameFromType(type) {
+  return pieceNameFromCode(type);
+}
+
+function formatTargetName(target) {
+  if (!target) return "piece";
+  return target.toLowerCase().replace(/^the\s+/, "");
+}
+
+function renderFactTemplate(fact, context = {}) {
+  const templates = FACT_TEMPLATES[fact.tag] || ["This move creates a useful tactical idea."];
+  const template = templates[Math.floor(Math.random() * templates.length)];
+  const target1 = fact.targets[0] || context.target1 || "the king";
+  const target2 = fact.targets[1] || context.target2 || "a critical piece";
+  const pieceName = fact.piece || context.piece || "piece";
+  const square = fact.square || context.square || "the key square";
+  return template
+    .replaceAll("{piece}", pieceName)
+    .replaceAll("{square}", square)
+    .replaceAll("{target1}", formatTargetName(target1))
+    .replaceAll("{target2}", formatTargetName(target2))
+    .replaceAll("{best_move}", context.bestMove || "the best move")
+    .replaceAll("{played_move}", context.playedMove || "your move");
+}
+
+function selectTopFact(facts = []) {
+  if (!facts.length) return null;
+  return [...facts].sort((a, b) => (b.priority || 0) - (a.priority || 0))[0];
+}
+
 function extractPvFacts(fen, pvMoves = [], sideToMove = null) {
   if (!fen || !Array.isArray(pvMoves) || !pvMoves.length) {
     return {
       tactical: false,
       summary: "The engine line stays quiet and positional.",
       line: [],
+      facts: [],
     };
   }
 
   const board = new Chess(fen);
   const moves = pvMoves.slice(0, 6);
   const line = [];
-  let checkmate = null;
-  let fork = null;
-  let check = null;
-  let material = null;
+  const facts = [];
 
   for (let index = 0; index < moves.length; index += 1) {
     const uci = moves[index];
@@ -176,118 +259,115 @@ function extractPvFacts(fen, pvMoves = [], sideToMove = null) {
     const opponentColor = moverColor === "w" ? "b" : "w";
 
     if (after.isCheckmate()) {
-      checkmate = {
+      facts.push(new ChessFact("ALLOWED_MATE", 100, pieceNameFromCode(move.piece), move.to, ["king"], {
         side: moverColor === "w" ? "White" : "Black",
-        move: move.san,
-      };
+        bestMove: move.san,
+      }));
       break;
     }
 
-    const opponentKing = findKingSquare(after, opponentColor);
-    if (opponentKing && squareIsAttacked(after, opponentKing, moverColor)) {
-      check = {
+    const attackedTargets = [];
+    const pieceOnTarget = after.get(move.to);
+    if (pieceOnTarget && pieceOnTarget.color === moverColor) {
+      const isHanging = squareIsAttacked(after, move.to, opponentColor) && !squareIsAttacked(after, move.to, moverColor);
+      if (isHanging) {
+        facts.push(new ChessFact("HUNG_PIECE", 83, pieceNameFromType(pieceOnTarget.type), move.to, [], {
+          side: moverColor === "w" ? "White" : "Black",
+        }));
+      }
+    }
+
+    const destinationMoves = after.moves({ square: move.to, verbose: true });
+    for (const candidate of destinationMoves) {
+      const piece = after.get(candidate.to);
+      if (piece && piece.color === opponentColor) {
+        attackedTargets.push(pieceNameFromType(piece.type));
+      }
+    }
+
+    if (attackedTargets.length >= 2) {
+      const forkTargets = [...new Set(attackedTargets)].slice(0, 2);
+      facts.push(new ChessFact("CREATED_FORK", 88, pieceNameFromCode(move.piece), move.to, forkTargets, {
         side: moverColor === "w" ? "White" : "Black",
-        move: move.san,
-      };
+      }));
+      break;
     }
 
     if (move.captured) {
       const capturedValue = PIECE_VALUES[move.captured] ?? 0;
       if (capturedValue >= 3) {
-        material = {
+        facts.push(new ChessFact("BLUNDERED_MATERIAL", 82, pieceNameFromCode(move.piece), move.to, [pieceNameFromCode(move.captured)], {
           side: moverColor === "w" ? "White" : "Black",
-          move: move.san,
           captured: move.captured,
-        };
+        }));
       }
     }
 
     const enemyKing = findKingSquare(after, opponentColor);
-    const enemyQueen = findQueenSquare(after, opponentColor);
-    if (enemyKing && enemyQueen) {
-      const kingThreatened = squareIsAttacked(after, enemyKing, moverColor);
-      const queenThreatened = squareIsAttacked(after, enemyQueen, moverColor);
-      if (kingThreatened && queenThreatened) {
-        fork = {
-          side: moverColor === "w" ? "White" : "Black",
-          move: move.san,
-          targets: ["king", "queen"],
-        };
-        break;
-      }
+    if (enemyKing && squareIsAttacked(after, enemyKing, moverColor)) {
+      facts.push(new ChessFact("MISSED_FORK", 70, pieceNameFromCode(move.piece), move.to, ["king", "queen"], {
+        side: moverColor === "w" ? "White" : "Black",
+        bestMove: move.san,
+      }));
+    }
+
+    if (move.flags.includes("k") || move.flags.includes("q")) {
+      const tag = move.flags.includes("k") ? "CASTLED_KINGSIDE" : "CASTLED_QUEENSIDE";
+      facts.push(new ChessFact(tag, 42, pieceNameFromCode(move.piece), move.to, [], {
+        side: moverColor === "w" ? "White" : "Black",
+      }));
+    }
+
+    const fromRank = moverColor === "w" ? 0 : 7;
+    const movedFromBackRank = move.from[1] === String(fromRank) || move.from[1] === String(fromRank);
+    if (move.piece !== "p" && movedFromBackRank && index < 10) {
+      facts.push(new ChessFact("DEVELOPED_PIECE", 30, pieceNameFromCode(move.piece), move.to, [], {
+        side: moverColor === "w" ? "White" : "Black",
+      }));
     }
   }
 
-  if (checkmate || fork || check || material) {
-    return {
-      tactical: true,
-      checkmate,
-      fork,
-      check,
-      material,
-      line,
-      side: sideToMove,
-      summary: "The engine line contains a tactical idea.",
-    };
+  if (!facts.length) {
+    facts.push(new ChessFact("POSITIONAL_EDGE", 20, "", "", [], { side: sideToMove }));
   }
 
+  const tactical = facts.some((fact) => fact.priority >= 70);
   return {
-    tactical: false,
-    summary: "The engine line stays quiet and positional.",
+    tactical,
+    summary: tactical ? "The engine line contains a tactical idea." : "The engine line stays quiet and positional.",
     line,
+    facts,
     side: sideToMove,
   };
 }
 
 function generateCoachText(facts) {
-  if (facts?.checkmate) {
+  const factList = Array.isArray(facts) ? facts : facts?.facts || [];
+  const selected = selectTopFact(factList);
+
+  if (!selected) {
     return {
-      title: `${facts.checkmate.side} is mating`,
-      text: `${facts.checkmate.side} can finish the game after ${facts.checkmate.move}.`,
-      detail: "The line reaches checkmate, so the move sequence is forcing and the opponent has no legal defense.",
-      tip: "When a forced mate is on the board, do not trade away your last defender. Finish with the move that leaves no escape squares.",
+      title: "Positional squeeze",
+      text: "The engine line is quiet but still prefers a steady positional edge.",
+      detail: "The continuation is not tactical, which means the side with the better structure, king safety, and piece activity is likely to gain an advantage over time.",
+      tip: "Look for the better pawn structure, safer king, and more active pieces before chasing a shortcut or a speculative tactic.",
     };
   }
 
-  if (facts?.fork) {
-    return {
-      title: `${facts.fork.side} creates a fork`,
-      text: `${facts.fork.side}'s ${facts.fork.move} attacks the king and queen at the same time.`,
-      detail: "A fork is a double attack: the opponent has to choose one threat, which usually creates a material or positional win.",
-      tip: "Scan for direct attacks on the king and a high-value piece together, especially after a forcing check or a quiet move that opens a line.",
-    };
-  }
-
-  if (facts?.check) {
-    return {
-      title: `${facts.check.side} keeps the initiative`,
-      text: `${facts.check.side} keeps the attack alive with ${facts.check.move}.`,
-      detail: "The line creates a check or direct threat, forcing the other side to respond and reducing their choices.",
-      tip: "When a check is forcing, calculate the opponent's only replies and then look for the follow-up tactic behind the move.",
-    };
-  }
-
-  if (facts?.material) {
-    const pieceName = {
-      p: "pawn",
-      n: "knight",
-      b: "bishop",
-      r: "rook",
-      q: "queen",
-    }[facts.material.captured] || "piece";
-    return {
-      title: `${facts.material.side} wins material`,
-      text: `${facts.material.side} wins a ${pieceName} after ${facts.material.move}.`,
-      detail: "The engine line gains a valuable piece and converts the extra material into a clear positional advantage.",
-      tip: "Count material after each forcing sequence and ask whether your move creates an immediate capture or a dangerous positional squeeze.",
-    };
-  }
+  const text = renderFactTemplate(selected, {
+    bestMove: selected.metadata.bestMove || "the best move",
+    playedMove: selected.metadata.playedMove || "that move",
+    piece: selected.piece || "piece",
+    square: selected.square || "the key square",
+  });
 
   return {
-    title: "Positional squeeze",
-    text: "The engine line is quiet but still prefers a steady positional edge.",
-    detail: "The continuation is not tactical, which means the side with the better structure, king safety, and piece activity is likely to gain an advantage over time.",
-    tip: "Look for the better pawn structure, safer king, and more active pieces before chasing a shortcut or a speculative tactic.",
+    title: selected.tag.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase()),
+    text,
+    detail: `The line is consistent with the engine's tactical plan: ${text}`,
+    tip: (selected.priority >= 90)
+      ? "When a move creates a forcing idea, check the opponent's exact reply before you celebrate."
+      : "Look for the key defender or escape square before committing to a tactical idea.",
   };
 }
 
@@ -515,7 +595,8 @@ function moveExplanation(move, alternative, loss, playedBestMove, scoreContext) 
     return {
       title: `${moveName}: engine's top choice`,
       text: `${mover}'s ${moveName} matches Stockfish's preferred move in this position.`,
-      detail: `${context.join(" ") || "This move preserves the strongest continuation found at the current analysis depth."} The engine's evaluation changed by only ${loss.toFixed(2)} pawns compared with its preferred line. ${tip}`,
+      detail: `${context.join(" ") || "This move preserves the strongest continuation found at the current analysis depth."} The engine's evaluation changed by only ${loss.toFixed(2)} pawns compared with the alternative.`,
+      tip,
     };
   }
 
@@ -532,13 +613,11 @@ function moveExplanation(move, alternative, loss, playedBestMove, scoreContext) 
   const lossSummary = scoreContext.forcedMate
     ? "the move allows a forced mate for the opponent"
     : `a loss of ${loss.toFixed(2)} pawns against the engine's best continuation`;
-  const reason = `${mover}'s evaluation shifted from ${before} on the position before the move to ${after} after ${moveName}; ${lossSummary}. This is Stockfish's estimate at the current search depth, not a certainty about the game result.`;
+  const reason = `${mover}'s evaluation shifted from ${before} on the position before the move to ${after} after ${moveName}; ${lossSummary}. This is Stockfish's estimate at the current search depth.`;
   const alternativeText = alternative
     ? `The strongest alternative it found was ${alternative}.`
     : "The engine did not find a legal alternative.";
-  const moveContext = context.length
-    ? ` Move facts: ${context.join(" ")}`
-    : "";
+  const moveContext = context.length ? ` Move facts: ${context.join(" ")}` : "";
 
   const coachFacts = extractPvFacts(
     scoreContext.positionFen || null,
@@ -1431,3 +1510,260 @@ async function initialize() {
 }
 
 initialize();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
