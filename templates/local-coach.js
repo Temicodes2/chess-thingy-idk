@@ -4,19 +4,7 @@ const detail = document.querySelector("#explanation-detail");
 const qualityBadge = document.querySelector("#quality-badge");
 
 if (title && text && detail) {
-  const pieceNames = {
-    q: "queen",
-    r: "rook",
-    b: "bishop",
-    n: "knight",
-    p: "pawn",
-  };
-  let lastSource = "";
-  let lastOutput = null;
-  let scheduled = false;
-
-  function coachCopy(rawTitle, rawText, rawDetail) {
-    const source = `${rawTitle}\n${rawText}\n${rawDetail}`;
+  function friendlyCoach(rawTitle, rawText, rawDetail) {
     if (!rawText || /select a move|analyzing|analysis unavailable/i.test(rawText)) {
       return null;
     }
@@ -25,96 +13,78 @@ if (title && text && detail) {
       .replace(/This is Stockfish's estimate at the current search depth, not a certainty about the game result\.?/i, "")
       .replace(/\s+/g, " ")
       .trim();
+
     const detailFacts = rawDetail
       .replace(/\s*Coaching tip:.*$/i, "")
       .replace(/\s+/g, " ")
       .trim();
-    const lineMoves = [...rawText.matchAll(/(?:after|with)\s+([KQRBN]?[a-h][1-8](?:x[a-h][1-8])?[+#]?)/g)]
-      .map((match) => match[1]);
-    const move = lineMoves.at(-1);
-    let lesson;
-    let question;
+
+    const move = [...rawText.matchAll(/(?:after|with)\s+([KQRBN]?[a-h][1-8](?:x[a-h][1-8])?[+#]?)/g)]
+      .map((match) => match[1])
+      .at(-1);
+
+    let lesson = "A simple idea here: improve the piece that is least active, keep your king safe, and look for the next useful move.";
+    let question = "What is the biggest thing your opponent could do right now?";
 
     if (/checkmate|mate in|is mating|can finish the game/i.test(rawText)) {
       lesson = move
-        ? `The engine's line reaches mate after ${move}. Before you play it, check the king's escape squares and every possible block or capture; don't stop calculating at the first check.`
-        : "The engine sees a mating line. Before you play the move, check every king escape, block, and capture so you know the mate is really forced.";
-      question = "What is the defender's most stubborn reply, and what is your answer?";
-    } else if (/fork|attacks the king and queen|double attack/i.test(`${rawText} ${rawDetail}`)) {
+        ? `The move ${move} is part of a mating plan. Before you play it, check the king’s escape squares, blocks, and captures so you know the move really finishes the job.`
+        : "This is a forcing mate idea. Before you commit, check every escape, block, and capture so you know the position is actually over.";
+      question = "What escape square or defender is still left? Can you see the final check?";
+    } else if (/fork|double attack|king and queen/i.test(`${rawText} ${rawDetail}`)) {
       lesson = move
-        ? `${move} is the key double attack: it hits the king and queen together. Calculate the forced king response first, then confirm the queen cannot escape or be defended.`
-        : "The line contains a king-and-queen fork. Work out the forced king reply first, then check whether the queen can escape or be defended.";
-      question = "After the king responds, which target is still won—and can the forked piece move with tempo?";
+        ? `${move} is a strong fork. It attacks two important targets at once, which often forces the opponent to choose one.`
+        : "This line creates a fork: the attacker hits two targets at once, which often wins material or forces a better position.";
+      question = "If the king is forced to move, what else is now hanging?";
     } else if (/keeps the initiative|keeps the attack alive|gives check|check, so/i.test(rawText)) {
       lesson = move
-        ? `${move} is the forcing check in this line. List the opponent's legal king moves, blocks, and captures; then calculate the next move rather than assuming the check wins by itself.`
-        : "The line uses a forcing check to keep the initiative. List the opponent's legal king moves, blocks, and captures, then calculate the follow-up.";
-      question = "Which reply is strongest for the defender, and what changes after it?";
-    } else {
-      const captured = rawText.match(/wins? a[n]? (queen|rook|bishop|knight|pawn)|captures? a[n]? (queen|rook|bishop|knight|pawn)/i);
-      if (captured) {
-        const piece = captured[1].toLowerCase();
-        lesson = move
-          ? `The line wins the ${piece} with ${move}. Follow the whole capture sequence before taking it: check whether the capturing piece is recaptured and what forcing reply the opponent has.`
-          : `The line wins a ${piece}. Follow the whole capture sequence before taking it: check whether the capturing piece is recaptured and what forcing reply the opponent has.`;
-        question = "When the forcing sequence ends, who has gained material and whose king is safer?";
-      } else if (/promot/i.test(`${rawText} ${rawDetail}`)) {
-        lesson = "Promotion is the critical idea. Compare promoting with check against the opponent's forcing replies; a queen is strong, but don't overlook an immediate check, capture, or stalemate resource.";
-        question = "Can you promote with check, and what is the opponent's strongest reply?";
-      } else if (/castle/i.test(`${rawText} ${rawDetail}`)) {
-        lesson = "Castling gets the king toward safety and brings a rook into play. Before moving on, check whether the new king shelter can be opened and whether the rook has a useful file.";
-        question = "What line could open against your king, and which rook can you activate next?";
-      } else {
-        lesson = "No clear forcing tactic appears in the first few moves of the engine line. Keep it simple: improve your least-active piece, preserve your king's cover, and avoid creating a weakness you cannot defend.";
-        question = "Which of your pieces is least useful, and where can it improve without allowing a forcing reply?";
-      }
+        ? `${move} is a forcing check. First, list the opponent’s legal replies, then check what your next move will be after they answer.`
+        : "This is a forcing check idea. Ask: what can the defender do, and what comes next after that?";
+      question = "What reply is strongest for the defender, and what happens after that?";
+    } else if (/wins? a[n]? (queen|rook|bishop|knight|pawn)|captures? a[n]? (queen|rook|bishop|knight|pawn)/i.test(rawText)) {
+      lesson = move
+        ? `The engine likes ${move} because it wins material. Before you celebrate, ask: is the piece safe, and what can your opponent do after the capture?`
+        : "This line wins material. Count the value, then ask whether the capture is safe or whether the opponent has a better reply.";
+      question = "What is the opponent’s best reply after the material is won?";
+    } else if (/promot/i.test(`${rawText} ${rawDetail}`)) {
+      lesson = "This is a promotion idea. Look at the timing: can the pawn promote safely, or is there a stronger check or defense first?";
+      question = "Can you make the promotion with a check, or do you have a safer plan?";
+    } else if (/castle/i.test(`${rawText} ${rawDetail}`)) {
+      lesson = "Castling is often a good idea because it makes the king safer and brings the rook into play. Check whether the rook can become active and whether the king is still safe after.";
+      question = "What could open against your king, and which rook can help next?";
     }
 
     const reason = cleanReason
       .replace(/The engine line contains a tactical idea\.?/i, "")
       .replace(/The engine line stays quiet and positional\.?/i, "")
       .trim();
-    const quality = rawTitle.toLowerCase();
-    const encouragement = /engine's top choice|excellent|best \/ excellent/i.test(quality)
-      ? "Good choice—now make sure you understand the point so you can find the same idea again."
-      : /blunder|mistake|inaccuracy/i.test(quality)
-        ? "This is a useful pattern to learn; focus on the opponent's forcing reply rather than memorizing the engine move."
-        : "Use the line as a candidate, not a command: check the opponent's best reply before deciding.";
+
+    const encouragement = /engine's top choice|excellent|best \/ excellent/i.test(rawTitle.toLowerCase())
+      ? "Good move. Now slow down and look for the pattern so you can recognize it again next time."
+      : /blunder|mistake|inaccuracy/i.test(rawTitle.toLowerCase())
+        ? "This is a useful lesson, not a mistake to fear. Focus on the opponent's reply instead of memorizing the move."
+        : "Use this as a clue, not a rule. Check the opponent's best reply before you commit to the line.";
 
     return {
-      source,
+      source: `${rawTitle}\n${rawText}\n${rawDetail}`,
       text: [reason, lesson, encouragement].filter(Boolean).join(" "),
       detail: [detailFacts, `Coach's question: ${question}`].filter(Boolean).join(" "),
     };
   }
 
   function refreshCoach() {
-    scheduled = false;
     const rawTitle = title.textContent.trim();
     const rawText = text.textContent.trim();
     const rawDetail = detail.textContent.trim();
-    const source = `${rawTitle}\n${rawText}\n${rawDetail}`;
-    if (source === lastSource || (lastOutput &&
-      rawTitle === lastOutput.title && rawText === lastOutput.text && rawDetail === lastOutput.detail)) {
-      return;
-    }
+    const coached = friendlyCoach(rawTitle, rawText, rawDetail);
 
-    const coached = coachCopy(rawTitle, rawText, rawDetail);
     if (!coached) return;
 
-    lastSource = coached.source;
-    lastOutput = { title: rawTitle, text: coached.text, detail: coached.detail };
     text.textContent = coached.text;
     detail.textContent = coached.detail;
   }
 
-  function scheduleCoach() {
-    if (scheduled) return;
-    scheduled = true;
-    queueMicrotask(refreshCoach);
-  }
-
-  const observer = new MutationObserver(scheduleCoach);
+  const observer = new MutationObserver(refreshCoach);
   for (const element of [title, text, detail, qualityBadge].filter(Boolean)) {
     observer.observe(element, { childList: true, characterData: true, subtree: true });
   }
