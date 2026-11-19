@@ -7,7 +7,6 @@
     <title>Chess Studio</title>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/responsive.css">
-    <script src="./local-coach.js" defer></script>
     <script type="module" src="./app.js" defer></script>
   </head>
   <body>
@@ -79,6 +78,27 @@
         </form>
 
         <section class="workspace">
+          <aside class="moves-column">
+            <section class="panel moves-panel">
+              <div class="panel-heading moves-heading">
+                <div>
+                  <p class="eyebrow">SCORECARD</p>
+                  <h2>Moves <span id="move-count" class="move-count">0 plies</span></h2>
+                </div>
+                <button
+                  id="toggle-moves-button"
+                  class="toggle-moves-button"
+                  type="button"
+                  aria-expanded="true"
+                  aria-controls="move-content"
+                >Hide moves</button>
+              </div>
+              <div id="move-content" class="moves-content">
+                <div id="move-list" class="move-list" aria-label="Game moves"></div>
+              </div>
+            </section>
+          </aside>
+
           <div class="board-column">
             <div class="game-strip">
               <div class="players">
@@ -108,24 +128,6 @@
               <button id="end-button" class="icon-button" title="Go to end" aria-label="Go to end">▶|</button>
             </div>
 
-            <section class="panel moves-panel">
-              <div class="panel-heading moves-heading">
-                <div>
-                  <p class="eyebrow">SCORECARD</p>
-                  <h2>Moves <span id="move-count" class="move-count">0 plies</span></h2>
-                </div>
-                <button
-                  id="toggle-moves-button"
-                  class="toggle-moves-button"
-                  type="button"
-                  aria-expanded="true"
-                  aria-controls="move-content"
-                >Hide moves</button>
-              </div>
-              <div id="move-content" class="moves-content">
-                <div id="move-list" class="move-list" aria-label="Game moves"></div>
-              </div>
-            </section>
           </div>
 
           <aside class="analysis-column">
@@ -191,7 +193,7 @@
                 Select a move to see why Stockfish considers it strong or weak.
               </p>
               <p id="explanation-detail" class="explanation-detail">
-                Explanations use the engine's evaluation and best continuation. No move data leaves your browser.
+                The coach scans for forks, hanging pieces, exchanges, and the engine's best reply. No move data leaves your browser.
               </p>
             </section>
 

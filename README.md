@@ -18,7 +18,10 @@ game URL or a direct PGN download URL into **Analyze a game link**. Chess.com
 game pages cannot be imported directly by the static app because Chess.com
 blocks browser requests to its game data; download the game's PGN and open that
 file instead. Stockfish WASM and its license are included in `static/vendor`.
-Reviewing a move gives an engine-based explanation and coaching tip; analyzed
+Move reviews combine Stockfish's evaluation with an on-device board scan for
+forks, newly hanging or under-defended pieces, captures, and material lost in
+the engine's reply line. The move list and analysis sit on either side of the
+centered board on wide screens and stack for smaller screens. Analyzed
 inaccuracies, mistakes, and blunders also get a **Why?** button in the move list.
 
 Run `npm run build` to create the static site in `dist` for deployment.

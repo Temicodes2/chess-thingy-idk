@@ -1,6 +1,6 @@
 /* Keep the board square and size every square from the same grid tracks. */
 .app-shell {
-  width: min(1360px, 100%);
+  width: min(1600px, 100%);
 }
 
 .board-wrap {

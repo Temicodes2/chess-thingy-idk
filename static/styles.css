@@ -309,12 +309,19 @@ h1 {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  grid-template-columns: minmax(210px, 0.75fr) minmax(400px, 1.35fr) minmax(285px, 0.9fr);
+  grid-template-areas: "moves board analysis";
   align-items: start;
-  gap: 27px;
+  gap: 18px;
+}
+
+.moves-column {
+  grid-area: moves;
+  min-width: 0;
 }
 
 .board-column {
+  grid-area: board;
   min-width: 0;
 }
 
@@ -555,17 +562,18 @@ h1 {
 }
 
 .analysis-column {
+  grid-area: analysis;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 9px;
 }
 
 .panel {
-  padding: 15px 16px;
+  padding: 13px 14px;
   border: 1px solid var(--border);
-  border-radius: 9px;
-  background: linear-gradient(145deg, #1a221c, #171e19);
+  border-radius: 7px;
+  background: #191f1a;
 }
 
 .panel-heading {
@@ -940,7 +948,7 @@ h2 {
 }
 
 .move-list {
-  max-height: 230px;
+  max-height: min(72vh, 720px);
   overflow-y: auto;
   padding-right: 4px;
   scrollbar-color: #445345 transparent;
@@ -1058,21 +1066,21 @@ footer span {
   font-size: 14px;
 }
 
-@media (min-width: 1120px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1.15fr) minmax(350px, 0.85fr);
-    gap: 34px;
-  }
-}
-
-@media (max-width: 820px) {
+@media (max-width: 1100px) {
   .app-shell {
     padding: 0 20px;
   }
 
   .workspace {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.84fr);
-    gap: 18px;
+    grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+    grid-template-areas:
+      "board analysis"
+      "moves analysis";
+    gap: 14px;
+  }
+
+  .move-list {
+    max-height: min(42vh, 420px);
   }
 
   .board-controls {
@@ -1081,11 +1089,6 @@ footer span {
 
   .icon-button {
     width: 32px;
-  }
-
-  .move-indicator {
-    min-width: 100px;
-    font-size: 9px;
   }
 }
 
@@ -1157,6 +1160,10 @@ footer span {
 
   .workspace {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "board"
+      "analysis"
+      "moves";
     gap: 18px;
   }
 
@@ -1170,7 +1177,7 @@ footer span {
   }
 
   .move-list {
-    max-height: 220px;
+    max-height: 300px;
   }
 
   .board-controls {

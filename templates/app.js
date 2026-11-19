@@ -1,4 +1,5 @@
 import { Chess } from "chess.js";
+import { analyzeMoveTactics } from "./move-coach.js";
 
 const PIECES = {
   K: "♔",
@@ -565,73 +566,34 @@ function moveExplanation(move, alternative, loss, playedBestMove, scoreContext) 
     scoreContext.moverSign === 1,
     false,
   );
-  const context = [];
-
-  if (move.flags.includes("k") || move.flags.includes("q")) {
-    context.push("You castled, moving the king toward safety while activating a rook.");
-  }
-  if (move.captured) {
-    const pieceNames = {
-      p: "pawn",
-      n: "knight",
-      b: "bishop",
-      r: "rook",
-      q: "queen",
-    };
-    context.push(`The move captures a ${pieceNames[move.captured] || "piece"}.`);
-  }
-  if (move.san.endsWith("#")) {
-    context.push("It gives checkmate.");
-  } else if (move.san.endsWith("+")) {
-    context.push("It gives check, so the opponent must answer the king threat.");
-  }
-  if (move.promotion) {
-    context.push(`The pawn promotes to a ${move.promotion}.`);
-  }
-
-  let tip;
-  if (playedBestMove) {
-    tip = "Keep checking forcing moves and king safety before settling on a move; here your choice matches the engine's top option.";
-    return {
-      title: `${moveName}: engine's top choice`,
-      text: `${mover}'s ${moveName} matches Stockfish's preferred move in this position.`,
-      detail: `${context.join(" ") || "This move preserves the strongest continuation found at the current analysis depth."} The engine's evaluation changed by only ${loss.toFixed(2)} pawns compared with the alternative.`,
-      tip,
-    };
-  }
-
-  if (loss >= 2) {
-    tip = "Before moving, scan all checks, captures, and direct threats for both sides. Then check whether your intended destination is defended and what your opponent can win immediately.";
-  } else if (loss >= 1) {
-    tip = "Pause to look for your opponent's forcing reply and count attackers versus defenders on the piece or square you are changing.";
-  } else if (loss >= 0.5) {
-    tip = "Compare a few candidate moves and ask what your opponent can threaten next; check that important pieces remain protected.";
-  } else {
-    tip = "This was close to the engine's choice. Keep comparing safe developing moves and forcing tactics before committing.";
-  }
+  const tactics = analyzeMoveTactics({
+    positionFen: scoreContext.positionFen,
+    moveUci: move.uci,
+    alternativeUci: scoreContext.bestMoveUci,
+    replyUci: scoreContext.replyBestMoveUci,
+    replyPv: scoreContext.replyPv,
+  });
 
   const lossSummary = scoreContext.forcedMate
     ? "the move allows a forced mate for the opponent"
     : `a loss of ${loss.toFixed(2)} pawns against the engine's best continuation`;
-  const reason = `${mover}'s evaluation shifted from ${before} on the position before the move to ${after} after ${moveName}; ${lossSummary}. This is Stockfish's estimate at the current search depth.`;
+  const reason = playedBestMove
+    ? `${mover}'s ${moveName} matches Stockfish's preferred move. The evaluation changed by only ${loss.toFixed(2)} pawns compared with the engine's top line.`
+    : `${mover}'s evaluation shifted from ${before} before ${moveName} to ${after} after it; ${lossSummary}. This is Stockfish's estimate at the current search depth.`;
   const alternativeText = alternative
-    ? `The strongest alternative it found was ${alternative}.`
+    ? playedBestMove
+      ? `The engine's top choice was ${alternative}.`
+      : `The strongest alternative it found was ${alternative}.`
     : "The engine did not find a legal alternative.";
-  const moveContext = context.length ? ` Move facts: ${context.join(" ")}` : "";
-
-  const coachFacts = extractPvFacts(
-    scoreContext.positionFen || null,
-    scoreContext.pv || [],
-    scoreContext.moverSign === 1 ? "w" : "b",
-  );
-  const coach = generateCoachText(coachFacts);
-  const coachText = `${coach.text} ${coach.detail}`.trim();
+  const boardRead = tactics.facts.join(" ");
 
   return {
-    title: `${moveName}: ${quality.toLowerCase()}`,
-    text: `${reason} ${coachText}`.trim(),
-    detail: `${alternativeText}${moveContext} Coaching tip: ${tip}`,
-    tip,
+    title: playedBestMove
+      ? `${moveName}: engine's top choice`
+      : `${moveName}: ${quality.toLowerCase()}`,
+    text: `${reason} ${boardRead}`.trim(),
+    detail: `${alternativeText} Coaching tip: ${tactics.tip}`,
+    tip: tactics.tip,
   };
 }
 
@@ -699,7 +661,7 @@ function resetMoveExplanation() {
   elements.explanationText.textContent =
     "Select a move to see why Stockfish considers it strong or weak.";
   elements.explanationDetail.textContent =
-    "Explanations use the engine's evaluation and best continuation. No move data leaves your browser.";
+    "The coach scans for forks, hanging pieces, exchanges, and the engine's best reply. No move data leaves your browser.";
 }
 
 function paintEvaluation(score) {
@@ -830,8 +792,10 @@ async function analyzePosition(game, ply) {
           bestScore: moveLoss.bestScore,
           playedScore: evaluation,
           forcedMate,
-          pv: moveLoss.pv,
           positionFen: moveLoss.positionFen,
+          bestMoveUci: moveLoss.bestMoveUci,
+          replyBestMoveUci: evaluation.bestMove,
+          replyPv: evaluation.pv,
         },
       );
       const quality = moveQuality(loss);
@@ -1510,10 +1474,6 @@ async function initialize() {
 }
 
 initialize();
-
-
-
-
 
 
 
