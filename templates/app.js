@@ -552,47 +552,25 @@ function moveQuality(loss) {
   return "Blunder";
 }
 
-function moveExplanation(move, alternative, loss, playedBestMove, scoreContext) {
+function moveExplanation(move, loss, playedBestMove, scoreContext) {
   const quality = moveQuality(loss);
   const moveName = move.san;
-  const mover = scoreContext.moverSign === 1 ? "White" : "Black";
-  const before = formatScore(
-    scoreContext.bestScore,
-    scoreContext.moverSign === 1,
-    false,
-  );
-  const after = formatScore(
-    scoreContext.playedScore,
-    scoreContext.moverSign === 1,
-    false,
-  );
   const tactics = analyzeMoveTactics({
     positionFen: scoreContext.positionFen,
     moveUci: move.uci,
     alternativeUci: scoreContext.bestMoveUci,
     replyUci: scoreContext.replyBestMoveUci,
     replyPv: scoreContext.replyPv,
+    forcedMate: scoreContext.forcedMate,
   });
-
-  const lossSummary = scoreContext.forcedMate
-    ? "the move allows a forced mate for the opponent"
-    : `a loss of ${loss.toFixed(2)} pawns against the engine's best continuation`;
-  const reason = playedBestMove
-    ? `${mover}'s ${moveName} matches Stockfish's preferred move. The evaluation changed by only ${loss.toFixed(2)} pawns compared with the engine's top line.`
-    : `${mover}'s evaluation shifted from ${before} before ${moveName} to ${after} after it; ${lossSummary}. This is Stockfish's estimate at the current search depth.`;
-  const alternativeText = alternative
-    ? playedBestMove
-      ? `The engine's top choice was ${alternative}.`
-      : `The strongest alternative it found was ${alternative}.`
-    : "The engine did not find a legal alternative.";
-  const boardRead = tactics.facts.join(" ");
 
   return {
     title: playedBestMove
       ? `${moveName}: engine's top choice`
       : `${moveName}: ${quality.toLowerCase()}`,
-    text: `${reason} ${boardRead}`.trim(),
-    detail: `${alternativeText} Coaching tip: ${tactics.tip}`,
+    text: tactics.insight,
+    emphasis: tactics.emphasis,
+    detail: tactics.tip,
     tip: tactics.tip,
   };
 }
@@ -603,8 +581,35 @@ function moveReviewKey(game, ply) {
 
 function showMoveCoach(explanation) {
   elements.explanationTitle.textContent = explanation.title;
-  elements.explanationText.textContent = explanation.text;
-  elements.explanationDetail.textContent = explanation.detail;
+  setCoachCopy(elements.explanationText, elements.explanationDetail, explanation);
+}
+
+function appendEmphasizedText(container, text, emphasis) {
+  container.replaceChildren();
+  if (!emphasis || !text.includes(emphasis)) {
+    container.textContent = text;
+    return;
+  }
+
+  let start = 0;
+  let match = text.indexOf(emphasis, start);
+  while (match !== -1) {
+    container.append(document.createTextNode(text.slice(start, match)));
+    const strong = document.createElement("strong");
+    strong.textContent = emphasis;
+    container.append(strong);
+    start = match + emphasis.length;
+    match = text.indexOf(emphasis, start);
+  }
+  container.append(document.createTextNode(text.slice(start)));
+}
+
+function setCoachCopy(insightElement, tipElement, explanation) {
+  appendEmphasizedText(insightElement, explanation.text, explanation.emphasis);
+  tipElement.replaceChildren();
+  const label = document.createElement("strong");
+  label.textContent = "Tip: ";
+  tipElement.append(label, document.createTextNode(explanation.tip));
 }
 
 function renderMoveReview(game, ply) {
@@ -637,7 +642,12 @@ function renderMoveReview(game, ply) {
   );
   const details = document.createElement("div");
   details.className = "move-why-details";
-  details.textContent = `${review.explanation.text} ${review.explanation.detail}`;
+  const insight = document.createElement("p");
+  insight.className = "move-review-insight";
+  const tip = document.createElement("p");
+  tip.className = "move-review-tip";
+  setCoachCopy(insight, tip, review.explanation);
+  details.append(insight, tip);
   const reviewKey = moveReviewKey(game, ply);
   details.hidden = state.expandedMoveReview !== reviewKey;
   whyButton.textContent = details.hidden ? "Why?" : "Hide";
@@ -784,7 +794,6 @@ async function analyzePosition(game, ply) {
         : Math.max(0, (bestMoveScore - playedScore) / 100);
       const explanation = moveExplanation(
         moveLoss.playedMove,
-        moveLoss.bestMoveSan,
         loss,
         moveLoss.playedMove.uci === moveLoss.bestMoveUci,
         {
@@ -1474,8 +1483,6 @@ async function initialize() {
 }
 
 initialize();
-
-
 
 
 

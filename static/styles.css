@@ -757,8 +757,15 @@ h2 {
 .explanation-text {
   margin: 0;
   color: #d7e3d5;
-  font-size: 12px;
-  line-height: 1.65;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.explanation-text strong,
+.explanation-detail strong,
+.move-why-details strong {
+  color: #e4f4c9;
+  font-weight: 750;
 }
 
 .explanation-detail {
@@ -1038,6 +1045,16 @@ h2 {
   background: #202820;
   font-size: 10px;
   line-height: 1.55;
+}
+
+.move-review-insight,
+.move-review-tip {
+  margin: 0;
+}
+
+.move-review-tip {
+  margin-top: 5px;
+  color: #9eaa9f;
 }
 
 .move-button.empty {

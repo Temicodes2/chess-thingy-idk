@@ -54,10 +54,6 @@ function vulnerability(board, piece) {
   };
 }
 
-function formatPiece(piece) {
-  return `${piece.color === "w" ? "White" : "Black"} ${pieceName(piece.type)} on ${piece.square}`;
-}
-
 function findFork(board, from, color) {
   const attacker = board.get(from);
   if (!attacker || attacker.color !== color) return null;
@@ -78,7 +74,7 @@ function findFork(board, from, color) {
   const [first, second] = targets;
   return {
     targets: [first, second],
-    text: `${formatPiece({ ...attacker, square: from })} attacks the ${pieceName(first.type)} on ${first.square} and ${pieceName(second.type)} on ${second.square} at once. This is a fork; check whether the opponent can save both targets or capture the attacker.`,
+    text: `${pieceName(attacker.type)} on ${from} forks the ${pieceName(first.type)} on ${first.square} and ${pieceName(second.type)} on ${second.square}.`,
   };
 }
 
@@ -108,18 +104,17 @@ function describeNewExposure(board, exposure, moverColor) {
       return `a ${pieceName(attacker?.type)} on ${square}`;
     });
   const attackerText = attackers.length === 1
-    ? `by ${attackerNames[0]}`
+    ? attackerNames[0]
     : `by ${attackers.length} pieces (${attackerNames.join(" and ")})`;
   const target = piece.color === moverColor ? "Your" : "The opponent's";
   if (defenders.length === 0) {
-    return `${target} ${pieceName(piece.type)} on ${piece.square} is newly hanging: attacked ${attackerText} and has no defenders.`;
+    return `${target} ${pieceName(piece.type)} on ${piece.square} is hanging to ${attackerText}.`;
   }
-  return `${target} ${pieceName(piece.type)} on ${piece.square} is newly under-defended: ${attackers.length} attackers outnumber ${defenders.length} defenders.`;
+  return `${target} ${pieceName(piece.type)} on ${piece.square} is under-defended (${attackers.length} attackers, ${defenders.length} defenders).`;
 }
 
 function describeCapture(move) {
-  const value = pieceValue(move.captured);
-  return `The move captures a ${pieceName(move.captured)}${value ? ` worth ${value} ${value === 1 ? "point" : "points"}` : ""}.`;
+  return `You win a ${pieceName(move.captured)}.`;
 }
 
 function describeBestReplyCapture(afterMove, replyUci) {
@@ -127,9 +122,7 @@ function describeBestReplyCapture(afterMove, replyUci) {
   const reply = moveFromUci(replyBoard, replyUci);
   if (!reply?.captured) return null;
 
-  const victim = pieceName(reply.captured);
-  const value = pieceValue(reply.captured);
-  return `Stockfish's strongest reply, ${reply.san}, captures your ${victim}${value ? ` worth ${value} ${value === 1 ? "point" : "points"}` : ""}.`;
+  return `The opponent's best reply, ${reply.san}, wins your ${pieceName(reply.captured)}.`;
 }
 
 function describeMaterialLoss(afterMove, pv, moverColor) {
@@ -138,11 +131,9 @@ function describeMaterialLoss(afterMove, pv, moverColor) {
   const line = new Chess(afterMove.fen());
   let materialLost = 0;
   let materialWon = 0;
-  let plies = 0;
   for (const uci of pv.slice(0, 8)) {
     const move = moveFromUci(line, uci);
     if (!move) break;
-    plies += 1;
     if (move.captured) {
       if (move.color === moverColor) {
         materialWon += pieceValue(move.captured);
@@ -154,7 +145,7 @@ function describeMaterialLoss(afterMove, pv, moverColor) {
 
   const netLoss = materialLost - materialWon;
   if (netLoss < 1) return null;
-  return `Over Stockfish's next ${plies} plies, the captures leave you down about ${netLoss} material ${netLoss === 1 ? "point" : "points"} after recaptures.`;
+  return `The best line leaves you down ${netLoss} ${netLoss === 1 ? "point" : "points"} of material after the exchange.`;
 }
 
 function activityFact(move) {
@@ -164,12 +155,14 @@ function activityFact(move) {
     Math.abs(file(square) - 3.5) + Math.abs(rank(square) - 4.5);
   if (move.piece === "p") {
     const centralFile = ["c", "d", "e", "f"].includes(move.to[0]);
-    return `Your pawn advanced from ${move.from} to ${move.to}${centralFile ? " on a central file, gaining space" : ", changing the pawn cover around your position"}.`;
+    return centralFile
+      ? `Pawn to ${move.to} gains space in the center.`
+      : `Pawn to ${move.to} changes your pawn structure.`;
   }
   if (move.flags.includes("k") || move.flags.includes("q")) return null;
   return centerDistance(move.to) < centerDistance(move.from)
-    ? `Your ${pieceName(move.piece)} moved from ${move.from} to ${move.to}, closer to the center.`
-    : `Your ${pieceName(move.piece)} moved from ${move.from} to ${move.to}; compare which squares it controlled before and after the move.`;
+    ? `${pieceName(move.piece)} to ${move.to} moves closer to the center.`
+    : `${pieceName(move.piece)} to ${move.to} changes which squares it controls.`;
 }
 
 export function analyzeMoveTactics({
@@ -178,6 +171,7 @@ export function analyzeMoveTactics({
   alternativeUci,
   replyUci,
   replyPv = [],
+  forcedMate = false,
 }) {
   const before = new Chess(positionFen);
   const moverColor = before.turn();
@@ -214,39 +208,84 @@ export function analyzeMoveTactics({
     facts.push("Castling moves your king toward safety and brings a rook into play.");
   }
 
+  let alternativeFork = null;
+  let alternativeSan = null;
   if (alternativeUci && alternativeUci !== moveUci) {
     const alternativeBoard = new Chess(positionFen);
     const alternative = moveFromUci(alternativeBoard, alternativeUci);
-    const alternativeFork = alternative &&
+    alternativeSan = alternative?.san || null;
+    alternativeFork = alternative &&
       findFork(alternativeBoard, alternative.to, moverColor);
-    if (alternativeFork) {
-      facts.push(`A stronger tactical idea was ${alternative.san}: ${alternativeFork.text}`);
-    }
   }
 
   const replyCapture = describeBestReplyCapture(after, replyUci);
-  if (replyCapture) facts.push(replyCapture);
   const materialLoss = describeMaterialLoss(after, replyPv, moverColor);
-  if (materialLoss) facts.push(materialLoss);
-  if (!facts.length) {
-    const activity = activityFact(move);
-    facts.push(activity || "No immediate fork, newly exposed piece, or material-winning capture appeared in the board scan.");
-  }
+  const activity = activityFact(move);
+  const insight = (forcedMate ? "This move allows a forced mate." : null) ||
+    fork?.text ||
+    exposed[0] ||
+    (alternativeFork ? `Best was ${alternativeSan}: ${alternativeFork.text}` : null) ||
+    replyCapture ||
+    materialLoss ||
+    opponentTargets[0] ||
+    (move.san.endsWith("#") ? "Checkmate." : null) ||
+    (move.san.endsWith("+") ? "Check: the opponent must answer the king threat." : null) ||
+    (move.promotion ? `Pawn promotes to a ${pieceName(move.promotion)}.` : null) ||
+    (move.captured ? describeCapture(move) : null) ||
+    ((move.flags.includes("k") || move.flags.includes("q")) ? "Castling brings your king to safety and activates a rook." : null) ||
+    activity ||
+    "No immediate tactic; focus on improving your least active piece.";
+
+  const emphasis = forcedMate
+    ? "forced mate"
+    : fork?.text
+      ? fork.text.slice(fork.text.indexOf(" forks ") + 1)
+    : exposed[0]
+      ? exposed[0].replace(/^(Your|The opponent's) /, "")
+      : alternativeFork
+        ? `Best was ${alternativeSan}:`
+        : replyCapture
+          ? replyCapture.match(/wins your .+?\./)?.[0].replace(/\.$/, "") || "wins your"
+          : materialLoss
+            ? materialLoss.match(/down \d+ points? of material/)?.[0] || "down"
+            : opponentTargets[0]
+              ? opponentTargets[0].replace(/^The opponent's /, "")
+              : move.san.endsWith("#")
+                ? "Checkmate"
+                : move.san.endsWith("+")
+                  ? "Check"
+                  : move.promotion
+                    ? "promotes"
+                    : move.captured
+                      ? "win"
+                      : activity?.includes("closer to the center")
+                        ? "moves closer to the center"
+                        : activity?.includes("Pawn to")
+                          ? (activity.includes("gains space") ? "gains space in the center" : "changes your pawn structure")
+                          : activity
+                            ? "changes which squares it controls"
+                            : "";
 
   let tip = "Compare your move with the engine's alternative, then ask what the opponent's best reply changes.";
-  if (fork || facts.some((fact) => fact.includes("tactical idea was"))) {
-    tip = "Before playing a fork, check whether the attacker is safe and calculate the opponent's best king move or counterattack.";
+  if (forcedMate) {
+    tip = "Look for a forcing move that prevents the mating threat.";
+  } else if (fork || alternativeFork) {
+    tip = "Check that the forked piece is safe and cannot be captured.";
   } else if (exposed.length) {
-    tip = "Before moving, scan every piece you stop defending. Count attackers and defenders on the most valuable exposed piece.";
+    tip = "Before moving, check which piece loses its defender.";
   } else if (replyCapture) {
-    tip = "After choosing a move, look for the opponent's strongest capture and check whether you can prevent it or win something greater.";
+    tip = "Look for the opponent's best capture before you move.";
   } else if (materialLoss) {
-    tip = "Trace the whole exchange until the captures stop. Count the value of what each side wins, not just the first piece taken.";
+    tip = "Count the pieces won and lost through the end of the exchange.";
   } else if (move.captured) {
-    tip = "After a capture, calculate the likely recapture and compare the value of both pieces before deciding the exchange is favorable.";
+    tip = "Check whether your piece can be recaptured.";
   } else if (opponentTargets.length) {
-    tip = "Look for a forcing follow-up against the newly exposed piece, but first verify it cannot be saved or used to create a stronger threat.";
+    tip = "Can you attack that piece again before it escapes?";
+  } else if (move.san.endsWith("#")) {
+    tip = "Look for forcing moves that leave the king no escape.";
+  } else {
+    tip = "Keep improving your pieces while watching for your opponent's threats.";
   }
 
-  return { facts, tip };
+  return { facts, insight, emphasis, tip };
 }
