@@ -125,6 +125,20 @@ function describeBestReplyCapture(afterMove, replyUci) {
   return `The opponent's best reply, ${reply.san}, wins your ${pieceName(reply.captured)}.`;
 }
 
+function describeFutureQueenLoss(afterMove, pv, moverColor) {
+  if (!Array.isArray(pv) || !pv.length) return null;
+
+  const line = new Chess(afterMove.fen());
+  for (const uci of pv.slice(0, 12)) {
+    const move = moveFromUci(line, uci);
+    if (!move) break;
+    if (move.color !== moverColor && move.captured === "q") {
+      return `The engine's line shows the opponent winning your queen with ${move.san}.`;
+    }
+  }
+  return null;
+}
+
 function describeMaterialLoss(afterMove, pv, moverColor) {
   if (!Array.isArray(pv) || !pv.length) return null;
 
@@ -172,6 +186,8 @@ export function analyzeMoveTactics({
   replyUci,
   replyPv = [],
   forcedMate = false,
+  mateIn = null,
+  bestLineMateIn = null,
 }) {
   const before = new Chess(positionFen);
   const moverColor = before.turn();
@@ -219,10 +235,17 @@ export function analyzeMoveTactics({
   }
 
   const replyCapture = describeBestReplyCapture(after, replyUci);
+  const futureQueenLoss = describeFutureQueenLoss(after, replyPv, moverColor);
   const materialLoss = describeMaterialLoss(after, replyPv, moverColor);
   const activity = activityFact(move);
-  const insight = (forcedMate ? "This move allows a forced mate." : null) ||
+  const insight = (bestLineMateIn
+    ? `Best line forces mate in ${bestLineMateIn}.`
+    : null) ||
+    (forcedMate
+    ? `This move allows ${mateIn ? `mate in ${mateIn}` : "a forced mate"}.`
+    : null) ||
     fork?.text ||
+    futureQueenLoss ||
     exposed[0] ||
     (alternativeFork ? `Best was ${alternativeSan}: ${alternativeFork.text}` : null) ||
     replyCapture ||
@@ -236,14 +259,18 @@ export function analyzeMoveTactics({
     activity ||
     "No immediate tactic; focus on improving your least active piece.";
 
-  const emphasis = forcedMate
-    ? "forced mate"
+  const emphasis = bestLineMateIn
+    ? `mate in ${bestLineMateIn}`
+    : forcedMate
+      ? (mateIn ? `mate in ${mateIn}` : "forced mate")
     : fork?.text
       ? fork.text.slice(fork.text.indexOf(" forks ") + 1)
-    : exposed[0]
-      ? exposed[0].replace(/^(Your|The opponent's) /, "")
-      : alternativeFork
-        ? `Best was ${alternativeSan}:`
+    : futureQueenLoss
+      ? futureQueenLoss.match(/winning your queen with .+?\./)?.[0].replace(/\.$/, "") || "winning your queen"
+      : exposed[0]
+        ? exposed[0].replace(/^(Your|The opponent's) /, "")
+        : alternativeFork
+      ? `Best was ${alternativeSan}:`
         : replyCapture
           ? replyCapture.match(/wins your .+?\./)?.[0].replace(/\.$/, "") || "wins your"
           : materialLoss
@@ -267,8 +294,10 @@ export function analyzeMoveTactics({
                             : "";
 
   let tip = "Compare your move with the engine's alternative, then ask what the opponent's best reply changes.";
-  if (forcedMate) {
-    tip = "Look for a forcing move that prevents the mating threat.";
+  if (forcedMate || mateIn || bestLineMateIn) {
+    tip = forcedMate
+      ? "Look for a forcing move that prevents the mating threat."
+      : "Follow the checks and forced replies to see how the attack reaches mate.";
   } else if (fork || alternativeFork) {
     tip = "Check that the forked piece is safe and cannot be captured.";
   } else if (exposed.length) {

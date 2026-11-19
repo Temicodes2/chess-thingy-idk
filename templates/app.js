@@ -91,6 +91,7 @@ const state = {
   fileDragDepth: 0,
   moveReviews: new Map(),
   expandedMoveReview: null,
+  positionExplanation: null,
 };
 
 const elements = {
@@ -522,6 +523,7 @@ function resetAnalysis(message) {
   elements.analysisStatus.textContent = message;
   setQuality(null);
   state.bestMove = null;
+  state.positionExplanation = null;
   state.showBestMove = false;
   elements.bestMoveButton.disabled = true;
   elements.bestMoveButton.textContent = "Show best move";
@@ -557,11 +559,13 @@ function moveExplanation(move, loss, playedBestMove, scoreContext) {
   const moveName = move.san;
   const tactics = analyzeMoveTactics({
     positionFen: scoreContext.positionFen,
-    moveUci: move.uci,
+    moveUci: scoreContext.moveUci || move.uci,
     alternativeUci: scoreContext.bestMoveUci,
     replyUci: scoreContext.replyBestMoveUci,
     replyPv: scoreContext.replyPv,
     forcedMate: scoreContext.forcedMate,
+    mateIn: scoreContext.mateIn,
+    bestLineMateIn: scoreContext.bestLineMateIn,
   });
 
   return {
@@ -753,6 +757,7 @@ async function analyzePosition(game, ply) {
           from: previewMoveUci.slice(0, 2),
           to: previewMoveUci.slice(2, 4),
           promotion: previewMoveUci[4],
+          uci: previewMoveUci,
           positionFen: previewFen,
           color: bestPosition.turn(),
         }
@@ -767,6 +772,24 @@ async function analyzePosition(game, ply) {
         promotion: state.bestMove.promotion,
       });
       state.bestMove.san = bestMove.san;
+      const bestLineScore = moveLoss?.bestScore || evaluation;
+      const bestLine = bestLineScore.pv || [];
+      const bestLineTurnSign = state.bestMove.color === "w" ? 1 : -1;
+      const bestLineMateIn = bestLineScore.mate !== null &&
+        bestLineScore.mate * bestLineTurnSign > 0
+        ? Math.abs(bestLineScore.mate)
+        : null;
+      state.bestMove.explanation = moveExplanation({
+        ...bestMove,
+        uci: state.bestMove.uci,
+      }, 0, true, {
+        positionFen: previewFen,
+        moveUci: state.bestMove.uci,
+        bestMoveUci: state.bestMove.uci,
+        replyBestMoveUci: bestLine[1],
+        replyPv: bestLine.slice(1),
+        bestLineMateIn,
+      });
       const side = state.bestMove.color === "w" ? "White" : "Black";
       elements.bestMoveText.textContent = moveLoss
         ? `Best move for ${side}: ${bestMove.san} (${state.bestMove.from} → ${state.bestMove.to})`
@@ -781,7 +804,14 @@ async function analyzePosition(game, ply) {
 
     if (moveLoss === null) {
       setQuality(null);
-      resetMoveExplanation();
+      state.positionExplanation = state.bestMove?.explanation || {
+        title: "Position",
+        text: "No best move is available in this position.",
+        emphasis: "",
+        detail: "Select another position to continue reviewing.",
+        tip: "Select another position to continue reviewing.",
+      };
+      showMoveCoach(state.positionExplanation);
     } else {
       const playedScore = evaluation.cp * moveLoss.moverSign;
       const bestMoveScore = moveLoss.bestScore.cp * moveLoss.moverSign;
@@ -805,8 +835,10 @@ async function analyzePosition(game, ply) {
           bestMoveUci: moveLoss.bestMoveUci,
           replyBestMoveUci: evaluation.bestMove,
           replyPv: evaluation.pv,
+          mateIn: forcedMate ? Math.abs(evaluation.mate) : null,
         },
       );
+      state.positionExplanation = explanation;
       const quality = moveQuality(loss);
       setQuality(quality, loss, forcedMate ? "Allows a forced mate" : undefined);
       showMoveCoach(explanation);
@@ -1334,6 +1366,11 @@ elements.bestMoveButton.addEventListener("click", () => {
     : `${state.bestMove.positionFen !== displayedFen()
       ? `Best move for ${state.bestMove.color === "w" ? "White" : "Black"}`
       : "Stockfish recommends"} ${state.bestMove.san} (${state.bestMove.from} → ${state.bestMove.to})`;
+  showMoveCoach(
+    state.showBestMove
+      ? state.bestMove.explanation
+      : state.positionExplanation || state.bestMove.explanation,
+  );
   renderBoard(currentGame(), state.ply);
 });
 elements.toggleMovesButton.addEventListener("click", () => {
@@ -1483,10 +1520,6 @@ async function initialize() {
 }
 
 initialize();
-
-
-
-
 
 
 
