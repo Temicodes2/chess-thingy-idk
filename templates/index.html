@@ -77,6 +77,28 @@
           <p class="game-link-hint">FEN loads the current board position and side to move; it does not include earlier moves.</p>
         </form>
 
+        <form id="chesscom-form" class="game-link-form chesscom-form">
+          <label for="chesscom-username">Chess.com Username</label>
+          <div class="game-link-controls">
+            <input
+              id="chesscom-username"
+              type="text"
+              placeholder="e.g. magnuscarlsen"
+              autocomplete="username"
+              required
+            >
+            <button id="fetch-chesscom-games" class="best-move-button" type="submit">
+              Fetch Games
+            </button>
+            <button id="open-games-menu-btn" class="best-move-button" type="button" style="display: none;">
+              Browse Games
+            </button>
+          </div>
+          <p id="chesscom-status" class="game-link-hint">
+            Fetch your Chess.com games to analyze. No PGN file needed!
+          </p>
+        </form>
+
         <section class="workspace">
           <aside class="moves-column">
             <section class="panel moves-panel">
@@ -208,6 +230,41 @@
           <button type="button" data-promotion="r">Rook</button>
           <button type="button" data-promotion="b">Bishop</button>
           <button type="button" data-promotion="n">Knight</button>
+        </div>
+      </dialog>
+      <dialog id="games-menu-dialog" class="games-menu-dialog" aria-labelledby="games-menu-title">
+        <div class="games-menu-header">
+          <div>
+            <h2 id="games-menu-title">Select a game to analyze</h2>
+            <p id="games-menu-subtitle" class="games-menu-subtitle">Choose one of your recent games</p>
+          </div>
+          <button id="close-games-menu" class="games-menu-close" type="button" aria-label="Close game selection menu">✕</button>
+        </div>
+
+        <div class="games-menu-toolbar">
+          <input
+            id="games-filter-search"
+            class="games-filter-search"
+            type="search"
+            placeholder="Search opponent name…"
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <div class="games-filter-chips">
+            <button type="button" class="filter-chip active" data-filter="all">All</button>
+            <button type="button" class="filter-chip" data-filter="win">Wins</button>
+            <button type="button" class="filter-chip" data-filter="loss">Losses</button>
+            <button type="button" class="filter-chip" data-filter="draw">Draws</button>
+          </div>
+        </div>
+
+        <div id="games-menu-list" class="games-menu-list" role="list" aria-label="Recent games">
+          <!-- Game cards will be rendered here -->
+        </div>
+
+        <div class="games-menu-footer">
+          <button id="load-all-games-btn" class="text-button" type="button">Load all games into dropdown</button>
+          <button id="cancel-games-menu-btn" class="best-move-button" type="button">Close</button>
         </div>
       </dialog>
       <footer><span>♞</span> A quiet place to study the game.</footer>

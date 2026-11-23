@@ -92,6 +92,10 @@ const state = {
   moveReviews: new Map(),
   expandedMoveReview: null,
   positionExplanation: null,
+  fetchedGames: [],
+  fetchedUsername: "",
+  activeGameFilter: "all",
+  gameSearchQuery: "",
 };
 
 const elements = {
@@ -109,6 +113,20 @@ const elements = {
   gameLinkButton: document.querySelector("#game-link-button"),
   fenForm: document.querySelector("#fen-form"),
   fenInput: document.querySelector("#fen-input"),
+  chesscomForm: document.querySelector("#chesscom-form"),
+  chesscomUsername: document.querySelector("#chesscom-username"),
+  chesscomButton: document.querySelector("#fetch-chesscom-games"),
+  chesscomStatus: document.querySelector("#chesscom-status"),
+  openGamesMenuBtn: document.querySelector("#open-games-menu-btn"),
+  gamesMenuDialog: document.querySelector("#games-menu-dialog"),
+  gamesMenuTitle: document.querySelector("#games-menu-title"),
+  gamesMenuSubtitle: document.querySelector("#games-menu-subtitle"),
+  gamesMenuList: document.querySelector("#games-menu-list"),
+  closeGamesMenu: document.querySelector("#close-games-menu"),
+  cancelGamesMenuBtn: document.querySelector("#cancel-games-menu-btn"),
+  loadAllGamesBtn: document.querySelector("#load-all-games-btn"),
+  gamesFilterSearch: document.querySelector("#games-filter-search"),
+  filterChips: document.querySelectorAll(".filter-chip"),
   whiteScore: document.querySelector("#white-score"),
   blackScore: document.querySelector("#black-score"),
   evaluationBar: document.querySelector("#evaluation-bar"),
@@ -961,9 +979,13 @@ function parsePgn(pgnText, filename) {
       ? [history[0].before, ...history.map((move) => move.after)]
       : [headers.FEN || chess.fen()];
 
+    const gameLabel = chunks.length > 1
+      ? `${filename} #${games.length + 1}${headers.Date ? ` (${headers.Date})` : ""}`
+      : filename;
+
     games.push({
       id: `${filename}:${games.length}`,
-      filename,
+      filename: gameLabel,
       white: headers.White || "White",
       black: headers.Black || "Black",
       result: headers.Result || "*",
@@ -1352,6 +1374,400 @@ elements.gameLinkForm.addEventListener("submit", (event) => {
   void loadGameLink(elements.gameLinkInput.value.trim());
 });
 
+elements.chesscomForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const username = elements.chesscomUsername.value.trim();
+  if (username) void loadChessComGames(username);
+});
+
+function formatGameDetails(game, targetUser) {
+  const normTarget = (targetUser || "").toLowerCase();
+  const whiteUser = (typeof game.white === "string" ? game.white : game.white?.username || "").toLowerCase();
+  const isWhite = whiteUser === normTarget;
+  const userSide = isWhite ? game.white : game.black;
+  const oppSide = isWhite ? game.black : game.white;
+
+  const userObj = typeof userSide === "string" ? { username: userSide } : (userSide || {});
+  const oppObj = typeof oppSide === "string" ? { username: oppSide } : (oppSide || {});
+
+  let outcome = "DRAW";
+  let badgeClass = "draw";
+  let reason = "Draw";
+
+  if (userObj.result === "win") {
+    outcome = "WIN";
+    badgeClass = "win";
+    reason = oppObj.result ? `Won (${oppObj.result})` : "Won";
+  } else if (oppObj.result === "win") {
+    outcome = "LOSS";
+    badgeClass = "loss";
+    reason = userObj.result ? `Lost (${userObj.result})` : "Lost";
+  } else if (userObj.result) {
+    reason = `Draw (${userObj.result})`;
+  }
+
+  const timeClass = game.timeClass || game.time_class || "Chess";
+  const tc = String(game.timeControl || game.time_control || "");
+  let tcFormatted = tc;
+  if (/^\d+$/.test(tc)) {
+    const mins = Math.floor(Number(tc) / 60);
+    tcFormatted = mins ? `${mins} min` : `${tc}s`;
+  } else if (/^(\d+)\+(\d+)$/.test(tc)) {
+    const [, s, inc] = tc.match(/^(\d+)\+(\d+)$/);
+    tcFormatted = `${Math.floor(Number(s) / 60)}+${inc}`;
+  }
+
+  let dateStr = "";
+  if (game.endTime) {
+    dateStr = new Date(game.endTime * 1000).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
+  const modeIcon = {
+    blitz: "⚡",
+    bullet: "🚅",
+    rapid: "⏱",
+    daily: "📅",
+  }[timeClass.toLowerCase()] || "♟";
+
+  return {
+    isWhite,
+    userSide: userObj,
+    oppSide: oppObj,
+    outcome,
+    badgeClass,
+    reason,
+    timeClass,
+    tcFormatted,
+    dateStr,
+    modeIcon,
+  };
+}
+
+function renderGamesMenuList() {
+  if (!elements.gamesMenuList) return;
+  elements.gamesMenuList.replaceChildren();
+
+  const query = state.gameSearchQuery;
+  const filter = state.activeGameFilter;
+
+  const filtered = state.fetchedGames.filter((game) => {
+    const details = formatGameDetails(game, state.fetchedUsername);
+    if (filter === "win" && details.outcome !== "WIN") return false;
+    if (filter === "loss" && details.outcome !== "LOSS") return false;
+    if (filter === "draw" && details.outcome !== "DRAW") return false;
+    if (query) {
+      const opp = (details.oppSide.username || "").toLowerCase();
+      if (!opp.includes(query)) return false;
+    }
+    return true;
+  });
+
+  if (!filtered.length) {
+    const emptyDiv = document.createElement("div");
+    emptyDiv.className = "games-menu-empty";
+    emptyDiv.textContent = state.fetchedGames.length
+      ? "No games matched your search filter."
+      : "No games found.";
+    elements.gamesMenuList.append(emptyDiv);
+    return;
+  }
+
+  filtered.forEach((game) => {
+    const details = formatGameDetails(game, state.fetchedUsername);
+    const originalIndex = state.fetchedGames.indexOf(game);
+
+    const card = document.createElement("div");
+    card.className = "game-card";
+    card.setAttribute("role", "button");
+    card.tabIndex = 0;
+    card.setAttribute(
+      "aria-label",
+      `Game ${originalIndex + 1}: ${details.outcome} vs ${details.oppSide.username}`,
+    );
+
+    const leftDiv = document.createElement("div");
+    leftDiv.className = "game-card-left";
+    const modeSpan = document.createElement("span");
+    modeSpan.className = "game-card-mode";
+    modeSpan.textContent = `${details.modeIcon} ${details.timeClass}${details.tcFormatted ? ` · ${details.tcFormatted}` : ""}`;
+    const dateSpan = document.createElement("span");
+    dateSpan.className = "game-card-date";
+    dateSpan.textContent = details.dateStr || `Game #${originalIndex + 1}`;
+    leftDiv.append(modeSpan, dateSpan);
+
+    const centerDiv = document.createElement("div");
+    centerDiv.className = "game-card-center";
+
+    const whiteLine = document.createElement("div");
+    whiteLine.className = `game-player-line ${details.isWhite ? "is-user" : ""}`;
+    const whitePiece = document.createElement("span");
+    whitePiece.className = "player-piece white-piece";
+    whitePiece.textContent = "♔";
+    const whiteName = document.createElement("span");
+    const whiteUser = typeof game.white === "string" ? game.white : game.white?.username || "White";
+    const whiteRating = typeof game.white === "object" && game.white?.rating ? ` (${game.white.rating})` : "";
+    whiteName.textContent = `${whiteUser}${whiteRating}`;
+    whiteLine.append(whitePiece, whiteName);
+
+    const blackLine = document.createElement("div");
+    blackLine.className = `game-player-line ${!details.isWhite ? "is-user" : ""}`;
+    const blackPiece = document.createElement("span");
+    blackPiece.className = "player-piece black-piece";
+    blackPiece.textContent = "♚";
+    const blackName = document.createElement("span");
+    const blackUser = typeof game.black === "string" ? game.black : game.black?.username || "Black";
+    const blackRating = typeof game.black === "object" && game.black?.rating ? ` (${game.black.rating})` : "";
+    blackName.textContent = `${blackUser}${blackRating}`;
+    blackLine.append(blackPiece, blackName);
+
+    centerDiv.append(whiteLine, blackLine);
+
+    const rightDiv = document.createElement("div");
+    rightDiv.className = "game-card-right";
+
+    const resultDiv = document.createElement("div");
+    resultDiv.className = "game-card-result";
+    const badge = document.createElement("span");
+    badge.className = `game-result-badge ${details.badgeClass}`;
+    badge.textContent = details.outcome;
+    const reasonSpan = document.createElement("span");
+    reasonSpan.className = "game-result-reason";
+    reasonSpan.textContent = details.reason;
+    resultDiv.append(badge, reasonSpan);
+
+    const analyzeBtn = document.createElement("button");
+    analyzeBtn.type = "button";
+    analyzeBtn.className = "game-card-analyze-btn";
+    analyzeBtn.textContent = "Analyze →";
+
+    rightDiv.append(resultDiv, analyzeBtn);
+    card.append(leftDiv, centerDiv, rightDiv);
+
+    const handleSelect = (e) => {
+      e.stopPropagation();
+      loadSingleGameFromMenu(game, originalIndex);
+    };
+
+    card.addEventListener("click", handleSelect);
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handleSelect(e);
+      }
+    });
+
+    elements.gamesMenuList.append(card);
+  });
+}
+
+function loadSingleGameFromMenu(game, index) {
+  if (!game || !game.pgn) return;
+  const details = formatGameDetails(game, state.fetchedUsername);
+  const oppName = details.oppSide?.username || "Opponent";
+  const label = `Chess.com vs ${oppName} (${details.outcome})`;
+
+  loadPgnText(game.pgn, label);
+  elements.gamesMenuDialog?.close();
+
+  const msg = `Analyzing game #${index + 1} vs ${oppName} (${details.outcome}). Use controls below to navigate moves.`;
+  if (elements.chesscomStatus) {
+    elements.chesscomStatus.textContent = `✓ ${msg}`;
+    elements.chesscomStatus.style.color = "#7cd88e";
+  }
+  showMessage(msg);
+}
+
+function loadAllGamesFromMenu() {
+  if (!state.fetchedGames || !state.fetchedGames.length) return;
+  const combinedPgn = state.fetchedGames
+    .map((g) => g.pgn?.trim())
+    .filter(Boolean)
+    .join("\n\n");
+  if (!combinedPgn) return;
+
+  loadPgnText(combinedPgn, `Chess.com`);
+  elements.gamesMenuDialog?.close();
+
+  const msg = `Loaded all ${state.fetchedGames.length} games into the dropdown selector above.`;
+  if (elements.chesscomStatus) {
+    elements.chesscomStatus.textContent = `✓ ${msg}`;
+    elements.chesscomStatus.style.color = "#7cd88e";
+  }
+  showMessage(msg);
+}
+
+function openGamesMenu() {
+  if (!elements.gamesMenuDialog) return;
+  if (elements.gamesMenuTitle) {
+    elements.gamesMenuTitle.textContent = state.fetchedUsername
+      ? `Recent games for ${state.fetchedUsername}`
+      : "Select a game to analyze";
+  }
+  if (elements.gamesMenuSubtitle) {
+    elements.gamesMenuSubtitle.textContent = state.fetchedGames.length
+      ? `${state.fetchedGames.length} recent games found. Click any game to start analyzing.`
+      : "No fetched games available.";
+  }
+  state.gameSearchQuery = "";
+  if (elements.gamesFilterSearch) elements.gamesFilterSearch.value = "";
+  state.activeGameFilter = "all";
+  elements.filterChips?.forEach((chip) => {
+    chip.classList.toggle("active", chip.dataset.filter === "all");
+  });
+
+  renderGamesMenuList();
+  elements.gamesMenuDialog.showModal();
+}
+
+async function fetchChessComGamesClient(username) {
+  const cleanUsername = username.trim().toLowerCase();
+
+  // 1. Try local or Vercel API endpoint (/api/chesscom)
+  try {
+    const apiRes = await fetch(`/api/chesscom?username=${encodeURIComponent(cleanUsername)}`);
+    if (apiRes.ok) {
+      const data = await apiRes.json();
+      if (data.games && data.games.length) {
+        return {
+          games: data.games,
+          combinedPgn: data.combinedPgn,
+          count: data.count || data.games.length,
+        };
+      }
+    } else if (apiRes.status === 404) {
+      const data = await apiRes.json().catch(() => null);
+      if (data?.error && data.error.includes("user")) {
+        throw new Error(data.error);
+      }
+    } else {
+      const data = await apiRes.json().catch(() => null);
+      if (data?.error) throw new Error(data.error);
+    }
+  } catch (err) {
+    if (err.message && (err.message.includes("user") || err.message.includes("spelling"))) {
+      throw err;
+    }
+  }
+
+  // 2. Direct browser fetch to Chess.com PubAPI archives (fallback for static hosting)
+  async function doFetch(url) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        if (res.status === 404) throw new Error(`Chess.com user "${username}" was not found.`);
+        throw new Error(`Chess.com API returned HTTP ${res.status}.`);
+      }
+      return await res.json();
+    } catch (err) {
+      if (err.message && err.message.includes("not found")) throw err;
+      const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+      const proxyRes = await fetch(proxyUrl);
+      if (!proxyRes.ok) throw new Error("Could not connect to Chess.com API. Please check your connection.");
+      return await proxyRes.json();
+    }
+  }
+
+  const archivesUrl = `https://api.chess.com/pub/player/${encodeURIComponent(cleanUsername)}/games/archives`;
+  const archivesData = await doFetch(archivesUrl);
+  const archives = archivesData.archives || [];
+  if (!archives.length) {
+    throw new Error(`No completed games found for "${username}".`);
+  }
+
+  const latestArchiveUrl = archives[archives.length - 1];
+  const gamesData = await doFetch(latestArchiveUrl);
+  let rawGames = (gamesData.games || []).filter((g) => g.pgn && g.pgn.trim());
+
+  if (rawGames.length < 10 && archives.length > 1) {
+    try {
+      const prevData = await doFetch(archives[archives.length - 2]);
+      const prevGames = (prevData.games || []).filter((g) => g.pgn && g.pgn.trim());
+      rawGames = [...prevGames, ...rawGames];
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!rawGames.length) {
+    throw new Error(`No games with PGN data found for "${username}".`);
+  }
+
+  rawGames.reverse();
+  const recentGames = rawGames.slice(0, 30).map((g) => ({
+    url: g.url,
+    pgn: g.pgn,
+    white: {
+      username: g.white?.username || "White",
+      rating: g.white?.rating ?? null,
+      result: g.white?.result || "",
+    },
+    black: {
+      username: g.black?.username || "Black",
+      rating: g.black?.rating ?? null,
+      result: g.black?.result || "",
+    },
+    timeControl: g.time_control,
+    timeClass: g.time_class,
+    endTime: g.end_time,
+    rated: g.rated,
+  }));
+
+  const combinedPgn = recentGames.map((g) => g.pgn.trim()).join("\n\n");
+  return { games: recentGames, combinedPgn, count: recentGames.length };
+}
+
+async function loadChessComGames(username) {
+  const cleanUsername = username.trim();
+  if (!cleanUsername) return;
+
+  if (elements.chesscomButton) {
+    elements.chesscomButton.disabled = true;
+    elements.chesscomButton.textContent = "Fetching…";
+  }
+  if (elements.chesscomStatus) {
+    elements.chesscomStatus.textContent = `Fetching games for ${cleanUsername} from Chess.com…`;
+    elements.chesscomStatus.style.color = "";
+  }
+  showMessage(`Fetching games for ${cleanUsername}…`);
+
+  try {
+    const result = await fetchChessComGamesClient(cleanUsername);
+    state.fetchedGames = result.games;
+    state.fetchedUsername = cleanUsername;
+
+    if (elements.openGamesMenuBtn) {
+      elements.openGamesMenuBtn.style.display = "";
+      elements.openGamesMenuBtn.textContent = `Browse Games (${result.games.length})`;
+    }
+
+    const readyMsg = `Found ${result.games.length} games for ${cleanUsername}. Select a game to analyze in the menu.`;
+    if (elements.chesscomStatus) {
+      elements.chesscomStatus.textContent = `✓ ${readyMsg}`;
+      elements.chesscomStatus.style.color = "#7cd88e";
+    }
+    showMessage(readyMsg);
+
+    // Open game selection menu so user can select before loading
+    openGamesMenu();
+  } catch (error) {
+    const errorMsg = error.message || "Failed to fetch games from Chess.com.";
+    if (elements.chesscomStatus) {
+      elements.chesscomStatus.textContent = `⚠ ${errorMsg}`;
+      elements.chesscomStatus.style.color = "#f0ad8e";
+    }
+    showMessage(errorMsg);
+  } finally {
+    if (elements.chesscomButton) {
+      elements.chesscomButton.disabled = false;
+      elements.chesscomButton.textContent = "Fetch Games";
+    }
+  }
+}
+
 document.querySelector("#start-button").addEventListener("click", () => showPosition(0));
 document.querySelector("#previous-button").addEventListener("click", () => showPosition(state.ply - 1));
 document.querySelector("#next-button").addEventListener("click", () => showPosition(state.ply + 1));
@@ -1444,6 +1860,35 @@ elements.promotionDialog.addEventListener("close", () => {
   state.pendingPromotion = null;
   state.selectedSquare = null;
   renderBoard(currentGame(), state.ply);
+});
+elements.openGamesMenuBtn?.addEventListener("click", () => {
+  if (state.fetchedGames.length) openGamesMenu();
+});
+elements.closeGamesMenu?.addEventListener("click", () => {
+  elements.gamesMenuDialog?.close();
+});
+elements.cancelGamesMenuBtn?.addEventListener("click", () => {
+  elements.gamesMenuDialog?.close();
+});
+elements.loadAllGamesBtn?.addEventListener("click", () => {
+  loadAllGamesFromMenu();
+});
+elements.gamesMenuDialog?.addEventListener("click", (event) => {
+  if (event.target === elements.gamesMenuDialog) {
+    elements.gamesMenuDialog.close();
+  }
+});
+elements.gamesFilterSearch?.addEventListener("input", (event) => {
+  state.gameSearchQuery = event.target.value.trim().toLowerCase();
+  renderGamesMenuList();
+});
+elements.filterChips?.forEach((chip) => {
+  chip.addEventListener("click", () => {
+    elements.filterChips.forEach((c) => c.classList.remove("active"));
+    chip.classList.add("active");
+    state.activeGameFilter = chip.dataset.filter || "all";
+    renderGamesMenuList();
+  });
 });
 elements.gameSelect.addEventListener("change", () => selectGame(Number(elements.gameSelect.value)));
 elements.fileInput.addEventListener("change", () => {
